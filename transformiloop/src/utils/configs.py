@@ -18,30 +18,31 @@ def initialize_config(name):
 
 DEFAULT_CONFIG = {
     # Data params
-    'batch_size' : 32,
-    'seq_len': 64,
-    'window_size': 64,
-    'seq_stride': 64,
-    'network_stride': 20,
+    'batch_size' : 256,
+    'seq_len': 50,
+    'window_size': 54,
+    'seq_stride': 54,
+    'network_stride': 1,
     'max_val_batches': -1,
-    'batches_per_epoch': 500,
+    'batches_per_epoch': 1000,
     'duplicate_as_window': False,
-    'embedding_size': 512,
     'full_transformer': False,
     'pretraining': False,
     'modif_ratio': 0.5, 
-    'batch_size_validation': 256,
+    'batch_size_validation': 1024,
     'batch_size_test': 256,
 
     # Transformers Params 
-    'd_model': 512,
+    'd_model': 64,
+    'embedding_size': 64,
+
     'n_heads': 8,
     'dim_ff': 256,
-    'n_layers': 6,
+    'n_layers': 1,
     'latent_dim': 32,
-    'q_dim': 32,
-    'v_dim': 32,
-    'encoding_type': EncodingTypes.POSITIONAL_ENCODING,
+    'q_dim': 64,
+    'v_dim': 64,
+    'encoding_type': EncodingTypes.NO_ENCODING,
     'normalization': True,
     'final_norm': True,
 
@@ -49,43 +50,65 @@ DEFAULT_CONFIG = {
     'use_cnn_encoder': True,
     'cnn_num_layers': 3,
     'cnn_in_channels': 1,
-    'cnn_channels_multiplier': 4,
-    'cnn_kernel_size': 4,
+    'cnn_channels': 31,
+    'cnn_kernel_size': 7,
     'cnn_stride_conv': 1,
-    'cnn_padding': 1,
+    'cnn_padding': 0,
     'cnn_dilation': 1,
-    'pool_kernel_size': 4,
+    'pool_kernel_size': 7,
     'pool_stride_conv': 1,
-    'pool_padding': 1,
+    'pool_padding': 0,
     'pool_dilation': 1, 
     'min_output_size': 64,
     'cnn_linear_size': -1,
+    
+    # GRU LSTM params
+    'gru_hidden_size': 7,
+    'gru_num_layers': 1,
+
+    # Real CNN Params
+    'conv_ker_size': 50,
+    'pool_ker_size': 25,
 
     # Classifier_params
-    'hidden_mlp': 256,
+    'hidden_mlp': 64,
     'use_last': False,
 
     # Training params
     'max_duration': int(71.5 * 3600),
+    'data_threshold': 0.2, # Threshold for the dataset
     'threshold': 0.5, 
-    'lr': 2e-4,
+    'lr': 0.0005,
     'betas': (0.9, 0.99),
     'clip': 0.5,
-    'warmup_steps': 250000,
+    'warmup_steps': 10000,
     'lr_decay': 0.99999,
-    'log_every': 50,
-    'dropout': 0.0,
+    'log_every': 100,
+    'save_every': 10000,
+    'dropout': 0.5,
     'epochs': 4000,
     'epochs_pretrain': 30,
     'es_epochs': 100000,
     'lam': 0.2,
+    'freeze_pretrained': False,
     'device': torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
+    'lr_step_size': 10000,
+    'lr_gamma': 1,
+    'weight_decay': 0.01,
 
     # Pretraining data 
     'max_val_num': 3000,
     'num_training_sets': 3,
     'num_datapoints': 100000,
     'es_delta': 0.01,
+    'reconstruction_dim': 64,
+    'epoch_length': -1,
+    'classes': 2,
+
+    # Masking params
+    'ratio_masked': 0.3,
+    'ratio_replaced': 0.0,
+    'ratio_kept': 1.0,
 
     # Finetuning data config
     # 'subjects_path': DATASET_PATH,
@@ -122,6 +145,18 @@ SAMPLEABLE_DICT = {
     'lr': [1e-6, 1e-5, 5e-6],
     'lam': [0.1, 0.7, 0.01]
 }
+
+
+def fill_config(config):
+    """
+    Takes an input config and fills in the missing values using the DEFAULT_CONFIG.
+    """
+    global DEFAULT_CONFIG
+    for key in DEFAULT_CONFIG:
+        if key not in config:
+            config[key] = DEFAULT_CONFIG[key]
+    return config
+
 
 def validate_config(config):
     """Checks if the input config is valid.
@@ -316,7 +351,7 @@ def check_valid_cnn(config):
     l_out = config['window_size']
     channels = config['cnn_in_channels']
     for _ in range(config['cnn_num_layers']):
-        channels = config['cnn_channels_multiplier'] * channels
+        channels = config['cnn_channels']
         l_out = out_dim(l_out, config['cnn_padding'], config['cnn_dilation'], config['cnn_kernel_size'], config['cnn_stride_conv'])
         l_out = out_dim(l_out, config['pool_padding'], config['pool_dilation'], config['pool_kernel_size'], config['pool_stride_conv'])
     

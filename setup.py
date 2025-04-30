@@ -15,9 +15,10 @@ setup(name='transformiloop',
         'einops',
         'wandb',
         'torchinfo',
-        'sklearn',
+        'scikit-learn',
         'pandas',
         'torchmetrics',
         'py3nvml',
-        'tlspyo']
+        'tlspyo',
+        'pyedflib']
      )

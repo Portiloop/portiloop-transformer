@@ -1,5 +1,6 @@
 from copy import deepcopy
 import logging
+from pathlib import Path
 import time
 import pandas as pd
 from torch.utils.data import Dataset, DataLoader, Sampler
@@ -65,7 +66,7 @@ class FinetuneDataset(Dataset):
         self.seq_len = 1 if config['full_transformer'] and not history else config['seq_len']  # want a single sample if full transformer and not training (aka validating), else we use seq len
         self.seq_stride = config['seq_stride']
         self.past_signal_len = self.seq_len * self.seq_stride
-        self.threshold = config['threshold']
+        self.threshold = config['data_threshold']
         self.label_history = history
 
         # Check if we are pretrining the model
@@ -115,7 +116,10 @@ class FinetuneDataset(Dataset):
                 assert label_unique == label_history[-1], f"bad label: {label_unique} != {label_history[-1]}"
             label = label_history if self.label_history else label_unique
 
+        assert label in [0, 1], f"Invalid label: {label}"
+        label = label.type(torch.LongTensor)
         return x_data, label
+        
 
     def is_spindle(self, idx):
         assert 0 <= idx <= len(self), f"Index out of range ({idx}/{len(self)})."
@@ -211,6 +215,55 @@ class ValidationSamplerSimple(Sampler):
         return self.len_max // self.dividing_factor
 
 
+class SignalDataset(Dataset):
+    def __init__(self, filename, path, window_size, fe, seq_len, seq_stride, list_subject, len_segment):
+        self.fe = fe
+        self.window_size = window_size
+        self.path_file = Path(path) / filename
+
+        self.data = pd.read_csv(self.path_file, header=None).to_numpy()
+        assert list_subject is not None
+        used_sequence = np.hstack([range(int(s[1]), int(s[2])) for s in list_subject])
+        split_data = np.array(np.split(self.data, int(len(self.data) / (len_segment + 30 * fe))))  # 115+30 = nb seconds per sequence in the dataset
+        split_data = split_data[used_sequence]
+        self.data = np.transpose(split_data.reshape((split_data.shape[0] * split_data.shape[1], 4)))
+
+        assert self.window_size <= len(self.data[0]), "Dataset smaller than window size."
+        self.full_signal = torch.tensor(self.data[0], dtype=torch.float)
+        self.full_envelope = torch.tensor(self.data[1], dtype=torch.float)
+        self.seq_len = seq_len  # 1 means single sample / no sequence ?
+        self.idx_stride = seq_stride
+        self.past_signal_len = self.seq_len * self.idx_stride
+
+        # list of indices that can be sampled:
+        self.indices = [idx for idx in range(len(self.data[0]) - self.window_size)  # all possible idxs in the dataset
+                        if not (self.data[3][idx + self.window_size - 1] < 0  # that are not ending in an unlabeled zone
+                                or idx < self.past_signal_len)]  # and far enough from the beginning to build a sequence up to here
+        total_spindles = np.sum(self.data[3] > 0.2)
+        logging.debug(f"total number of spindles in this dataset : {total_spindles}")
+
+    def __len__(self):
+        return len(self.indices)
+
+    def __getitem__(self, idx):
+        assert 0 <= idx < len(self), f"Index out of range ({idx}/{len(self)})."
+        idx = self.indices[idx]
+        assert self.data[3][idx + self.window_size - 1] >= 0, f"Bad index: {idx}."
+
+        signal_seq = self.full_signal[idx - (self.past_signal_len - self.idx_stride):idx + self.window_size].unfold(0, self.window_size, self.idx_stride)
+        envelope_seq = self.full_envelope[idx - (self.past_signal_len - self.idx_stride):idx + self.window_size].unfold(0, self.window_size, self.idx_stride)
+
+        ratio_pf = torch.tensor(self.data[2][idx + self.window_size - 1], dtype=torch.float)
+        label = torch.tensor(self.data[3][idx + self.window_size - 1], dtype=torch.float)
+
+        return signal_seq, label
+
+    def is_spindle(self, idx):
+        assert 0 <= idx <= len(self), f"Index out of range ({idx}/{len(self)})."
+        idx = self.indices[idx]
+        return True if (self.data[3][idx + self.window_size - 1] > 0.2) else False
+
+
 class ValidationSampler(Sampler):
     """
     network_stride (int >= 1, default: 1): divides the size of the dataset (and of the batch) by striding further than 1
@@ -225,7 +278,7 @@ class ValidationSampler(Sampler):
         self.len_segment = 115 * 250  # 115 seconds x 250 Hz
 
     def __iter__(self):
-        # seed()
+        random.seed()
         batches_per_segment = self.len_segment // self.seq_stride  # len sequence = 115 s + add the 15 first s?
         cursor_segment = 0
         while cursor_segment < batches_per_segment:
@@ -272,12 +325,12 @@ def get_dataloaders(config, dataset_path):
     print(f"Batch Size validation: {batch_size_val}")
     print(f"Batch Size test: {batch_size_test}")
 
-    if config['full_transformer']:
-        val_sampler = ValidationSampler(config['seq_stride'], nb_segment_val, config['network_stride'])
-        test_sampler = ValidationSampler(config['seq_stride'], nb_segment_test, config['network_stride'])
-    else:
-        val_sampler = ValidationSamplerSimple(val_ds, config['network_stride'])
-        test_sampler = ValidationSamplerSimple(test_ds, config['network_stride'])
+    # if config['full_transformer']:
+    val_sampler = ValidationSampler(config['seq_stride'], nb_segment_val, config['network_stride'])
+    test_sampler = ValidationSampler(config['seq_stride'], nb_segment_test, config['network_stride'])
+    # else:
+    #     val_sampler = ValidationSamplerSimple(val_ds, config['network_stride'])
+    #     test_sampler = ValidationSamplerSimple(test_ds, config['network_stride'])
     
     if config['pretraining']:
         train_dl = DataLoader(
@@ -303,8 +356,7 @@ def get_dataloaders(config, dataset_path):
         sampler=val_sampler,
         num_workers=0,
         pin_memory=True,
-        shuffle=False,
-        drop_last=True)
+        shuffle=False)
 
     test_dl = DataLoader(
         test_ds, 

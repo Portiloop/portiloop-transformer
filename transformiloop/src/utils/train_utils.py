@@ -1,3 +1,4 @@
+import time
 import torch
 import numpy as np
 import torch.nn as nn
@@ -8,28 +9,150 @@ from matplotlib.lines import Line2D
 import logging
 import wandb
 from torch.optim.lr_scheduler import _LRScheduler
+from copy import deepcopy
+from sklearn.metrics import classification_report, confusion_matrix
 
-def save_model(save_path, model, config):
-    if not os.path.exists(save_path):
-        os.makedirs(save_path)
-    not_saveable_keys = ['device', 'optimizer',
-                         'scheduler', 'loss_func', 'classifier_optimizer']
-    saveable_config = {key: val for (
-        key, val) in config.items() if key not in not_saveable_keys}
-    print(saveable_config)
-    with open(os.path.join(save_path, 'config.json'), 'w') as f:
-        json.dump(saveable_config, f)
-    torch.save(model.state_dict(), os.path.join(save_path, "model"))
+from transformiloop.src.data.sleep_stage import SleepStageDataset
+from transformiloop.src.data.spindle_trains import SpindleTrainDataset
 
 
-def finetune_epoch(dataloader, config, device, classifier, classifier_optim, scheduler):
+def save_model(model, optimizer, scheduler, batch_idx, exp_name):
+    """
+    Saves the model and config to a temporary directory and then uploads it to wandb.
+    """
+
+    logging.debug(f"Saving model at batch {batch_idx}")
+
+    # Create a temporary directory to save the model and config from path where script is running
+    temp_path = os.path.join(f"transformiloop/models/", exp_name)
+
+    # Create the temporary directory
+    if not os.path.exists(temp_path):
+        os.system('mkdir -p ' + temp_path)
+        
+    # Save the model and config to the temporary directory
+    model_state_dict = model.state_dict()
+    model_state_dict = {k: v for k, v in model_state_dict.items() if "transformer.positional_encoder.pos_encoder.pe" != k}
+    to_save = {
+        'model': model_state_dict,
+        'optimizer': optimizer.state_dict(),
+        'scheduler': scheduler.state_dict(),
+        'batch': batch_idx,
+    }
+    torch.save(to_save, os.path.join(temp_path, f"model_{batch_idx}.ckpt"))
+
+    # Upload the model and config to wandb
+    wandb.save(temp_path + '/*', base_path=temp_path)
+
+
+def seq_rec_loss(predictions, expected, mask, loss):
+    '''
+    Compute the loss for sequence reconstruction.
+    Predictions: (batch_size, seq_len, reconstruction_dim)
+    Expected: (batch_size, seq_len, reconstruction_dim)
+    Mask: (batch_size, seq_len)
+    loss: loss function to use
+    '''
+    mask = torch.where(mask==0, mask, 1).unsqueeze(-1)
+    mask = mask.expand(mask.size(0), mask.size(1), predictions.size(-1))
+    predictions = predictions * mask
+    expected = expected * mask
+    return loss(predictions, expected)
+    
+
+def pretrain_epoch(dataloader, config, model, optim, scheduler, wandblogger, length=-1, last_batch=0):
+    model.train()
+
+    mse_loss = nn.MSELoss()
+    loss_fns = {
+        'gender': nn.BCEWithLogitsLoss(),
+        'age': mse_loss,
+        'seq_rec': (lambda pred, exp, mask: seq_rec_loss(pred, exp, mask, mse_loss)),
+
+    }
+
+    for batch_idx, batch in enumerate(dataloader):
+        optim.zero_grad()
+
+        # Skip batches that have already been trained
+        batch_idx += last_batch
+
+        # Stop after a certain number of batches
+        if length > 0 and batch_idx > length:
+            break
+
+        if batch_idx % config['log_every'] == 0:
+            logging.debug(f"Training batch {batch_idx}")
+
+        # run through model
+        loss, losses, _ = run_pretrain_batch(batch, model, loss_fns, config['device'])
+        
+        # Update model parameters and step scheduler
+        loss.backward()
+        optim.step()
+        scheduler.step()
+
+        # Log the progress with wandb
+        if batch_idx % config['log_every'] == 0 and wandblogger is not None:
+            wandblogger.log({
+                'batch': batch_idx,
+                'combined_loss': loss.cpu().item(),
+                'age_loss': losses[0].cpu().item(),
+                'gender_loss': losses[1].cpu().item(),
+                'seq_rec_loss': losses[2].cpu().item(),
+                'learning_rate': float(optim.param_groups[0]['lr'])
+            })
+        
+        # Save the model
+        if batch_idx % config['save_every'] == 0 and batch_idx > 0 and wandblogger is not None:
+            save_model(model, optim, scheduler, batch_idx, wandblogger.id)
+
+
+def run_pretrain_batch(batch, model, losses, device):
+    # Extract batch info
+    signal, gender_y, age_y, mask, masked_seq = batch
+
+    # Get the energy of signal for sequence reconstruction
+    energy = torch.sum(signal ** 2, dim=-1) / signal.size(-1)
+    energy = energy.unsqueeze(-1)
+
+    # Send tensors to device
+    signal = signal.to(device)
+    masked_seq = masked_seq.to(device)
+    mask = mask.to(device)
+    gender_y = gender_y.to(device)
+    age_y = age_y.to(device)
+    energy = energy.to(device)
+
+    # Run model masked and unmasked to get all results
+    gender_pred, age_pred, _ = model(signal, None, None)
+    _, _, seq_rec_pred = model(masked_seq, None, mask)
+
+    # Get all the losses from all results for each task
+    loss_gender = losses['gender'](gender_pred.squeeze(), gender_y.float())
+    loss_age = losses['age'](age_pred.squeeze(), age_y.float())
+    loss_seq_rec = losses['seq_rec'](seq_rec_pred, signal, mask)
+
+    # Combine all losses by simply averaging
+    loss = loss_gender
+
+    # Returns losses and predictions
+    return loss, [loss_age, loss_gender, loss_seq_rec], [gender_pred, age_pred, seq_rec_pred]
+    
+
+def finetune_epoch(dataloader, config, device, classifier, classifier_optim, scheduler, wandb_run, epoch):
     classifier.train()
 
     total_loss = []
     all_preds = []
     all_targets = []
 
-    classification_criterion = nn.BCEWithLogitsLoss()
+    if config['classes'] > 2:
+        classification_criterion = nn.CrossEntropyLoss()
+    else:
+        classification_criterion = nn.BCELoss(reduction='none')
+
+    start = time.time()
 
     for batch_idx, batch in enumerate(dataloader):
 
@@ -43,18 +166,20 @@ def finetune_epoch(dataloader, config, device, classifier, classifier_optim, sch
             logging.debug(f"Training batch {batch_idx}")
             print(f"Training batch {batch_idx}")
 
-        loss, predictions, _ = simple_run_finetune_batch(batch, classifier, classification_criterion, config, device, True)
+        loss, predictions, _, _ = simple_run_finetune_batch(batch, classifier, classification_criterion, config, device, True)
+
+        loss = loss.mean()
 
         # Optimize parameters
         loss.backward()
-        nn.utils.clip_grad_value_(classifier.parameters(), config['clip'])
+        # nn.utils.clip_grad_value_(classifier.parameters(), config['clip'])
 
         if batch_idx == 0:
             plot_gradients = plot_grad_flow(classifier.cpu().named_parameters())
         classifier = classifier.to(device)
 
         classifier_optim.step()
-        scheduler.step()
+        # scheduler.step()
 
         with torch.no_grad():
             all_preds.append(predictions.detach().cpu())
@@ -65,13 +190,46 @@ def finetune_epoch(dataloader, config, device, classifier, classifier_optim, sch
             total_loss.append(loss.cpu().item())
     
     with torch.no_grad():
-        acc, f1, recall, precision, cm = compute_metrics(torch.stack(
-            all_preds, dim=0).to(device), torch.stack(all_targets, dim=0).to(device))
-    # print(f"Accuracy: {acc*100}\nF1-score: {f1*100}\nRecall: {recall*100}\nPrecision: {precision*100}")
-    return torch.tensor(total_loss).mean(), acc, f1, recall, precision, cm, plot_gradients
+        predictions = torch.flatten(torch.stack(all_preds, dim=0)).cpu()
+        targets = torch.flatten(torch.stack(all_targets, dim=0)).cpu()
+
+        if config['classes'] == 4:
+            target_names = SpindleTrainDataset.get_labels()
+        elif config['classes'] == 5:
+            target_names = SleepStageDataset.get_labels()[:-1]
+        else:
+            target_names = ["No Spindle", "Spindle"]
+            # target_names = ["Isolated", "First"]
+        metrics = classification_report(
+            targets, 
+            predictions, 
+            labels=list(range(config['classes'])), 
+            target_names=target_names,
+            output_dict=True)
+        # Add "val/" to the key of all the metrics
+        metrics = {f"train/{key}": value for key, value in metrics.items()}
+        # Add the confusion matrix to the metrics
+    
+    metrics['epoch'] = epoch
+    metrics['train/loss'] = torch.tensor(total_loss).mean().cpu().item()
+    metrics['learning_rate'] = float(classifier_optim.param_groups[0]['lr'])
+    metrics['gradient_plot'] = plot_gradients
+    if wandb_run is not None:
+        metrics['train/conf_mat'] = wandb.plot.confusion_matrix(
+            probs=None,
+            y_true=targets.tolist(),
+            preds=predictions.tolist(),
+            class_names=target_names,
+        )
+        wandb_run.log(metrics)
+
+    end = time.time()
+    logging.debug(f"Training took {end - start} seconds")
+
+    return metrics
 
 
-def finetune_test_epoch(dataloader, config, classifier, device):
+def finetune_test_epoch_lstm(dataloader, config, classifier, device, wandb_run, epoch):
     with torch.no_grad():
         
         classifier.eval()
@@ -80,7 +238,83 @@ def finetune_test_epoch(dataloader, config, classifier, device):
         all_targets = []
         total_loss = []
 
-        classification_criterion = nn.BCEWithLogitsLoss()
+        classification_criterion = nn.BCELoss(reduction='none')
+
+        start = time.time()
+        for batch_idx, batch in enumerate(dataloader):
+            
+            # Stop early if we want to set a maximum validation length (usually for testing)
+            if batch_idx > config['max_val_batches'] and config['max_val_batches'] != -1:
+                break
+
+            # Logging every x batches
+            if batch_idx % config['log_every'] == 0:
+                logging.debug(f"Validation batch {batch_idx}")
+                print(f"Validation batch {batch_idx}")
+
+            if batch_idx == 0:
+                h = torch.zeros((config['gru_num_layers'], config['batch_size_validation'], config['gru_hidden_size']), device=device)
+
+            # Run through model
+            loss, predictions, _, h = simple_run_finetune_batch(batch, classifier, classification_criterion, config, device, False, history=h)
+
+            loss = loss.mean()
+
+            if predictions is not None:
+                all_preds.append(predictions.detach().cpu())
+                all_targets.append(batch[1].detach())
+                total_loss.append(loss.cpu().item())
+
+        predictions = torch.flatten(torch.stack(all_preds, dim=0)).cpu()
+        targets = torch.flatten(torch.stack(all_targets, dim=0)).cpu()
+
+        if config['classes'] == 4:
+            target_names = SpindleTrainDataset.get_labels()
+        elif config['classes'] == 5:
+            target_names = SleepStageDataset.get_labels()[:-1]
+        else:
+            target_names = ["No Spindle", "Spindle"]
+            # target_names = ["Isolated", "First"]
+        metrics = classification_report(
+            targets, 
+            predictions, 
+            labels=list(range(config['classes'])), 
+            target_names=target_names,
+            output_dict=True)
+        # Add "val/" to the key of all the metrics
+        metrics = {f"val/{key}": value for key, value in metrics.items()}
+            
+    metrics['val/loss'] = torch.tensor(total_loss).mean().cpu().item()
+    metrics['epoch'] = epoch
+    if wandb_run is not None:
+        # Add the confusion matrix to the metrics
+        metrics['val/conf_mat'] = wandb.plot.confusion_matrix(
+            probs=None,
+            y_true=targets.tolist(),
+            preds=predictions.tolist(),
+            class_names=target_names,
+        )
+        wandb_run.log(metrics)
+
+    end = time.time()
+    logging.debug(f"Validation took {end - start} seconds")
+
+    return metrics
+
+
+def finetune_test_epoch(dataloader, config, classifier, device, wandb_run, epoch):
+    with torch.no_grad():
+        
+        classifier.eval()
+
+        all_preds = []
+        all_targets = []
+        total_loss = []
+
+        if config['classes'] > 2:
+            classification_criterion = nn.CrossEntropyLoss()
+        else:
+            classification_criterion = nn.BCEWithLogitsLoss()
         history, seqs = None, None
         for batch_idx, batch in enumerate(dataloader):
             
@@ -93,23 +327,48 @@ def finetune_test_epoch(dataloader, config, classifier, device):
                 logging.debug(f"Validation batch {batch_idx}")
                 print(f"Validation batch {batch_idx}")
 
-            if batch_idx == 0:
-                history = torch.zeros((batch[0].size(0), config['seq_len']-1)).to(device)
-
             # Run through model
-            loss, predictions, seqs = simple_run_finetune_batch(batch, classifier, classification_criterion, config, device, False, seqs=seqs, history=history)
+            loss, predictions, seqs, _ = simple_run_finetune_batch(batch, classifier, classification_criterion, config, device, False, seqs=seqs, history=history)
 
             if predictions is not None:
-                history = history[:, 1:]
-                history = torch.cat([history, predictions.unsqueeze(-1)], dim=1)
+                # history = history[:, 1:]
+                # history = torch.cat([history, predictions], dim=1)
                 all_preds.append(predictions.detach().cpu())
                 all_targets.append(batch[1].detach())
                 total_loss.append(loss.cpu().item())
 
-        acc, f1, recall, precision, cm = compute_metrics(torch.stack(
-            all_preds, dim=0).to(device), torch.stack(all_targets, dim=0).to(device))
+        predictions = torch.flatten(torch.stack(all_preds, dim=0)).cpu()
+        targets = torch.flatten(torch.stack(all_targets, dim=0)).cpu()
 
-    return torch.tensor(total_loss).mean(), acc, f1, recall, precision, cm
+        if config['classes'] == 4:
+            target_names = SpindleTrainDataset.get_labels()
+        elif config['classes'] == 5:
+            target_names = SleepStageDataset.get_labels()[:-1]
+        else:
+             target_names = ["No Spindle", "Spindle"]
+            # target_names = ["Isolated", "First"]
+        metrics = classification_report(
+            targets, 
+            predictions, 
+            labels=list(range(config['classes'])), 
+            target_names=target_names,
+            output_dict=True)
+        # Add "val/" to the key of all the metrics
+        metrics = {f"val/{key}": value for key, value in metrics.items()}
+            
+    metrics['val/loss'] = torch.tensor(total_loss).mean().cpu().item()
+    metrics['epoch'] = epoch
+    if wandb_run is not None:
+        # Add the confusion matrix to the metrics
+        metrics['val/conf_mat'] = wandb.plot.confusion_matrix(
+            probs=None,
+            y_true=targets.tolist(),
+            preds=predictions.tolist(),
+            class_names=target_names,
+        )
+        wandb_run.log(metrics)
+
+    return metrics
 
 
 def simple_run_finetune_batch(batch, classifier, loss, config, device, training, seqs=None, history=None):
@@ -131,6 +390,8 @@ def simple_run_finetune_batch(batch, classifier, loss, config, device, training,
     seqs = seqs.to(device)
     labels = labels.to(device)
 
+    hidden_lstm = None
+
     # Call model with accumulated sequence and history
     inferred = True
     if config['full_transformer']:
@@ -144,16 +405,24 @@ def simple_run_finetune_batch(batch, classifier, loss, config, device, training,
         else:
             inferred = False
     else:
-        logits = classifier(seqs, None).squeeze(-1)
+        if config['model_type'] == 'transformer':
+            logits = classifier(seqs, None)
+        elif config['model_type'] == 'lstm':
+            logits, hidden_lstm = classifier(seqs, history)
 
     # If we have performed inference, get predictions and loss and return them
     if inferred:
+        if config['classes'] <= 2:
+            labels = labels.unsqueeze(-1).type(torch.FloatTensor).to(device)
         loss = loss(logits, labels)
-        predictions = (torch.sigmoid(logits) > config['threshold']).int()
-        return loss, predictions, seqs
+        if config['classes'] > 2:
+            predictions = torch.argmax(torch.log_softmax(logits), dim=-1)
+        else:
+            predictions = (logits > config['threshold']).int()
+        return loss, predictions, seqs, hidden_lstm
 
     # We return None otherwise
-    return None, None, seqs
+    return None, None, seqs, None
 
 
 def plot_grad_flow(named_parameters):
@@ -228,6 +497,8 @@ def count_shapes(tensor_list):
 
 class WarmupTransformerLR(_LRScheduler):
     def __init__(self, optimizer, warmup_steps, target_lr, decay, last_epoch=-1, verbose=False):
+        if warmup_steps < 1:
+            warmup_steps = 1
         self.warmup_steps = warmup_steps
         self.target_lr = target_lr
         self.slope = target_lr / warmup_steps
@@ -242,66 +513,52 @@ class WarmupTransformerLR(_LRScheduler):
             return [(group['lr'] * self.decay) for group in self.optimizer.param_groups]
 
 
-# DEPRECATED
-# def run_finetune_batch(batch, model, classifier, class_loss, threshold, lam, device):
-#     # loss_c = None
-#     # loss_t = None
-#     # loss_f = None
+class WandBLogger:
+    def __init__(self, group_name, config, project_name, experiment_name, dataset_path):
+        self.best_model = None
+        self.experiment_name = experiment_name
+        self.config = config
+        self.dataset_path = dataset_path
+        os.environ['WANDB_API_KEY'] = "cd105554ccdfeee0bbe69c175ba0c14ed41f6e00"  # TODO insert my own key
+        self.wandb_run = wandb.init(
+            project=project_name,
+            id=experiment_name,
+            resume='allow',
+            config=config,
+            reinit=True,
+            group=group_name,
+            save_code=True)
 
-#     encoded = []
-#     seqs, freqs, labels, seq_augs, freq_augs = batch
-#     seqs, freqs = seqs.float().to(device), freqs.float().to(device)
-#     seq_augs, freq_augs = seq_augs.float().to(device), freq_augs.float().to(device)
+    def log(self, loggable_dict):
+        self.wandb_run.log(loggable_dict)
 
-#     # Run through encoder model
-#     for i in range(seqs.size(1)):
-#         seq = seqs[:, i, :].unsqueeze(1)
-#         freq = freqs[:, i, :].unsqueeze(1)
-#         # seq_aug = seq_augs[:, :, i, :]
-#         # freq_aug = freq_augs[:, :, i, :]
+    def update_summary(
+        self,
+        best_epoch,
+        best_f1_score,
+        best_precision,
+        best_recall,
+        best_loss,
+        best_accuracy
+    ):
+        self.wandb_run.summary['best_epoch'] = best_epoch
+        self.wandb_run.summary['best_f1_score'] = best_f1_score
+        self.wandb_run.summary['best_precision'] = best_precision
+        self.wandb_run.summary['best_recall'] = best_recall
+        self.wandb_run.summary['best_loss'] = best_loss
+        self.wandb_run.summary['best_accuracy'] = best_accuracy
 
-#         h_t, z_t, h_f, z_f = model(seq, freq)
-#         # h_t_aug, z_t_aug, h_f_aug, z_f_aug = model(seq_aug, freq_aug)
+    def update_best_model(self):
+        self.wandb_run.save(os.path.join(
+            self.dataset_path,
+            self.experiment_name),
+            policy="live",
+            base_path=self.dataset_path)
 
-#         # l_TF = model_loss(z_t, z_f)
-#         # l_1, l_2, l_3 = model_loss(z_t, z_f_aug), model_loss(
-#         #     z_t_aug, z_f), model_loss(z_t_aug, z_f_aug)
+    def __del__(self):
+        self.wandb_run.finish()
 
-#         # if loss_c is None:
-#         #     loss_c = (1 + l_TF - l_1) + (1 + l_TF - l_2) + (1 + l_TF - l_3)
-#         #     loss_t = model_loss(h_t, h_t_aug)
-#         #     loss_f = model_loss(h_f, h_f_aug)
-#         # else:
-#         #     loss_c += (1 + l_TF - l_1) + (1 + l_TF - l_2) + (1 + l_TF - l_3)
-#         #     loss_t += model_loss(h_t, h_t_aug).item()
-#         #     loss_f += model_loss(h_f, h_f_aug).item()
+    def restore(self):
+        self.wandb_run.restore(self.experiment_name,
+                               root=self.dataset_path)
 
-#         fea_concat = torch.cat((z_t, z_f), dim=1)
-#         encoded.append(fea_concat)
-
-#     # Run through classifier
-#     encoded = torch.stack(encoded, dim=1)
-#     logits = classifier(encoded).squeeze(-1)  # Run trhough transformer model
-#     # predictor loss, actually, here is training loss
-#     loss = class_loss(logits, labels.to(device))
-
-#     # Final loss taking into account all portions
-#     # loss_c /= seqs.size(1)
-#     # loss_t /= seqs.size(1)
-#     # loss_f /= seqs.size(1)
-#     # loss = loss_p + (1-lam) * loss_c + lam * (loss_t + loss_f)
-
-#     predictions = (torch.sigmoid(logits) > threshold).int()
-
-#     return loss, encoded, predictions
-
-# def nvidia_info():
-#     nvidia_smi.nvmlInit()
-
-#     deviceCount = nvidia_smi.nvmlDeviceGetCount()
-#     for i in range(deviceCount):
-#         handle = nvidia_smi.nvmlDeviceGetHandleByIndex(i)
-#         info = nvidia_smi.nvmlDeviceGetMemoryInfo(handle)
-#         print("Device {}: {}, Memory : ({:.2f}% free): {}(total), {} (free), {} (used)".format(i, nvidia_smi.nvmlDeviceGetName(handle), 100*info.free/info.total, info.total, info.free, info.used))
-
-#     nvidia_smi.nvmlShutdown()

@@ -1,3 +1,4 @@
+import argparse
 import copy
 import logging
 import os
@@ -5,22 +6,308 @@ import pprint
 import time
 from re import L
 import pathlib
+from torch.utils.data import DataLoader
 
 import torch
+from torch.utils.data.sampler import RandomSampler
+
 import torch.optim as optim
 import wandb
 from torch.nn import BCEWithLogitsLoss
 from torchinfo import summary
-from transformiloop.src.data.spindle_detect_data import get_dataloaders
-from transformiloop.src.models.transformers import ClassificationTransformer
-from transformiloop.src.utils.configs import initialize_config, validate_config
+from transformiloop.src.data.pretraining import PretrainingDataset
+from transformiloop.src.data.sleep_stage import get_dataloaders_sleep_stage
+from transformiloop.src.data.spindle_detection import get_dataloaders
+from transformiloop.src.data.spindle_trains import get_dataloaders_spindle_trains
+from transformiloop.src.models.lstm import PortiloopNetwork, get_final_model_config_dict
+from transformiloop.src.models.transformers import TransformiloopFinetune, TransformiloopPretrain, GRUClassifier
+from transformiloop.src.utils.configs import fill_config, initialize_config, validate_config
 
-from transformiloop.src.utils.train_utils import (finetune_epoch,
+from transformiloop.src.utils.train_utils import (WandBLogger, finetune_epoch,
                                                   finetune_test_epoch,
-                                                  WarmupTransformerLR)
+                                                  WarmupTransformerLR, finetune_test_epoch_lstm, pretrain_epoch)
 
 
-def run(config, wandb_group, wandb_project, save_model, unique_name, pretrain, finetune_encoder, initial_validation=True):
+def pretrain(wandb_group, wandb_project, wandb_exp_id, log_wandb=True, restore=False):
+
+    # Initialize the config depending on the case
+    if log_wandb:
+        # Initialize WandB logging
+        os.environ['WANDB_API_KEY'] = "cd105554ccdfeee0bbe69c175ba0c14ed41f6e00"  # TODO insert my own key
+        wandb_run = wandb.init(
+            project=wandb_project,
+            group=wandb_group,
+            id=wandb_exp_id,
+            resume='allow',
+            reinit=True,
+            save_code=True)
+
+        # Load the config
+        if restore:
+            config = wandb_run.config
+            model_weights_filename = \
+                f"model_{wandb_run.summary['batch'] // config['save_every'] * config['save_every']}.ckpt"
+            restore_dict = torch.load(wandb_run.restore(model_weights_filename, run_path=wandb_run.path).name)
+
+            logging.debug(f"Restoring model from {model_weights_filename}")
+        else:
+            config = initialize_config('test')
+            if not validate_config(config):
+                raise AttributeError("Issue with config.")
+            wandb_run.config.update(config)
+    else:
+        # Load the config
+        config = initialize_config('test')
+        if not validate_config(config):
+            raise AttributeError("Issue with config.")
+        if restore:
+            raise AttributeError("Cannot restore without WandB.")
+        wandb_run = None
+        
+    logging.debug("Initializing pretraining...")
+
+    # Basic initial setup
+    config['device'] = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    logging.debug(f"Using device {config['device']}")
+
+    # Set up all the dataset and model path
+    home_path = pathlib.Path(__file__).parents[2].resolve()
+    dataset_path = home_path / 'dataset' / 'MASS_preds'
+
+    logging.debug("Initializing dataset...")
+
+    # Initialize the pretraining dataloader
+    pre_dataset = PretrainingDataset(dataset_path, config)
+    sampler = RandomSampler(data_source=pre_dataset, replacement=True)
+    pretrain_dl = DataLoader(
+        pre_dataset, 
+        batch_size=config['batch_size'],
+        sampler=sampler,
+        pin_memory=True,
+        drop_last=True
+    )
+
+    logging.debug("Done initializing dataloader")
+
+    # Initialize the model
+    model = TransformiloopPretrain(config)
+    if restore:
+        model_state_dict = restore_dict['model']
+        model_state_dict = {k: v for k, v in model_state_dict.items() if "transformer.positional_encoder.pos_encoder.pe" != k}
+        # Get the latest model weights filename, the highest multiple of save_every which is less than the last batch
+        model.load_state_dict(model_state_dict)
+    model.to(config['device'])
+
+    # Initialize the pretraining optimizer
+    optimizer = optim.AdamW(
+        model.parameters(),
+        lr=config["lr"],
+        betas=config["betas"]
+    )
+    if restore:
+        optimizer.load_state_dict(restore_dict['optimizer'])
+
+    # Initialize the Learning rate scheduler
+    scheduler = WarmupTransformerLR(
+        optimizer,
+        config['warmup_steps'],
+        config['lr'],
+        config['lr_decay']
+    )
+    if restore:
+        scheduler.load_state_dict(restore_dict['scheduler'])
+
+    for epoch in range(config['epochs']):
+        try:
+            logging.debug(f"Starting epoch {epoch}")
+            pretrain_epoch(
+                pretrain_dl, 
+                config, 
+                model, 
+                optimizer,
+                scheduler, 
+                wandb_run,
+                length=config['epoch_length'],
+                last_batch=restore_dict['batch'] if restore else 0
+            )
+        except Exception as e:
+            if wandb_run:
+                wandb_run.finish()
+            print(f"Pretraining stopped due to an exception during epoch {epoch}...")
+            raise e
+
+
+def finetune(wandb_group, wandb_project, wandb_exp_id, log_wandb=True, restore=False, task=None, pretrained_model=None, model_type="transformer"):
+
+    if pretrained_model is not None:
+        os.environ['WANDB_API_KEY'] = "cd105554ccdfeee0bbe69c175ba0c14ed41f6e00"  # TODO insert my own key
+        if restore:
+            raise AttributeError("Cannot restore and use a pretrained model. Either restore and already started finetuning run, or start a new finetuning run from a pretrained model.")
+        api = wandb.Api()
+        run = api.run(pretrained_model['run_path'])
+        config = run.config
+        model_dict = torch.load(\
+                wandb.restore(pretrained_model['model_name'], run_path=pretrained_model['run_path']).name)
+        # Initialize the model
+        model = TransformiloopPretrain(config)
+        model_state_dict = model_dict['model']
+        model_state_dict = {k: v for k, v in model_state_dict.items() if "transformer.positional_encoder.pos_encoder.pe" != k}
+        # Get the latest model weights filename, the highest multiple of save_every which is less than the last batch
+        model.load_state_dict(model_state_dict)
+        model.to(config['device'])
+        
+        # Initialize the model with the pretrained weights
+        cnn_encoder, transformer = model.get_models()
+
+        # Verify that config has all the required elements
+        config = fill_config(config)
+        config['lr'] = 1e-6
+        model = TransformiloopFinetune(config, cnn_encoder, transformer, freeze=config['freeze_pretrained'])
+        
+        if log_wandb:
+            # Initialize WandB logging
+            wandb_run = wandb.init(
+                project=wandb_project,
+                group=wandb_group,
+                id=wandb_exp_id,
+                resume='allow',
+                reinit=True,
+                save_code=True)
+
+        if not validate_config(config):
+            raise AttributeError("Issue with config.")
+
+        if log_wandb:
+            wandb_run.config.update(config)
+        else:
+            wandb_run = None
+    else:
+        # Initialize the config depending on the case
+        if log_wandb:
+            # Initialize WandB logging
+            os.environ['WANDB_API_KEY'] = "cd105554ccdfeee0bbe69c175ba0c14ed41f6e00"  # TODO insert my own key
+            wandb_run = wandb.init(
+                project=wandb_project,
+                group=wandb_group,
+                id=wandb_exp_id,
+                resume='allow',
+                reinit=True,
+                save_code=True)
+
+            # Load the config
+            if restore:
+                config = wandb_run.config
+                model_weights_filename = \
+                    f"model_{wandb_run.summary['batch'] // config['save_every'] * config['save_every']}.ckpt"
+                model_dict = torch.load(wandb_run.restore(model_weights_filename, run_path=wandb_run.path).name)
+
+                logging.debug(f"Restoring model from {model_weights_filename}")
+            else:
+                config = initialize_config('test')
+                if not validate_config(config):
+                    raise AttributeError("Issue with config.")
+                wandb_run.config.update(config)
+        else:
+            # Load the config
+            config = initialize_config('test')
+            if not validate_config(config):
+                raise AttributeError("Issue with config.")
+            if restore:
+                raise AttributeError("Cannot restore without WandB.")
+            wandb_run = None
+        
+        # Set the num of classes according to the task
+        if task is None:
+            raise AttributeError("Task must be specified.")
+        elif task == 'spindles':
+            config['classes'] = 2
+        elif task == 'sleep_stages': 
+            config['classes'] = 5
+        elif task == 'spindle_trains':
+            config['classes'] = 2
+        
+        # Initialize the model
+        config['model_type'] = model_type
+        if model_type == "transformer":
+            model = TransformiloopFinetune(config)
+        elif model_type == "lstm":
+            c_model = get_final_model_config_dict()
+            model = PortiloopNetwork(c_model)
+            # model = GRUClassifier(config)
+
+        # Restore the model if needed
+        if restore:
+            model_state_dict = model_dict['model']
+            model_state_dict = {k: v for k, v in model_state_dict.items() if "transformer.positional_encoder.pos_encoder.pe" != k}
+            # Get the latest model weights filename, the highest multiple of save_every which is less than the last batch
+            model.load_state_dict(model_state_dict)
+        model.to(config['device'])
+
+    print(summary(model))
+
+    # Initialize the optimizer
+    optimizer = optim.AdamW(
+        model.parameters(),
+        lr=config["lr"],
+        weight_decay=config["weight_decay"],
+    )
+    if restore:
+        optimizer.load_state_dict(model_dict['optimizer'])
+    
+    # Initialize the scheduler
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=config['lr_step_size'], gamma=config['lr_gamma'])
+    if restore:
+        scheduler.load_state_dict(model_dict['scheduler'])
+
+    # Initialize dataset
+    if task is None:
+        raise AttributeError("Task must be specified.")
+    elif task == 'spindles':
+        dataset_path = pathlib.Path(__file__).parents[2].resolve() / 'dataset'
+        train_dl, val_dl, _ = get_dataloaders(config, dataset_path)
+    elif task == 'sleep_stages': 
+        dataset_path = pathlib.Path(__file__).parents[2].resolve() / 'dataset'
+        MASS_dir = dataset_path / 'MASS_preds'
+        train_dl, val_dl = get_dataloaders_sleep_stage(MASS_dir, dataset_path, config)
+    elif task == 'spindle_trains':
+        dataset_path = pathlib.Path(__file__).parents[2].resolve() / 'dataset'
+        MASSdataset_path = dataset_path / 'MASS_preds'
+        train_dl, val_dl = get_dataloaders_spindle_trains(MASSdataset_path, dataset_path, config)
+
+    # Start training
+    for epoch in range(config['epochs']):
+        try:
+            logging.debug(f"Starting epoch {epoch}")
+            train_metrics = finetune_epoch(
+                train_dl, 
+                config, 
+                config['device'],
+                model,
+                optimizer,
+                scheduler,
+                wandb_run,
+                epoch
+            )
+
+            # Run the validation
+            testing_method = finetune_test_epoch_lstm if model_type == "lstm" and task == "spindles" else finetune_test_epoch
+            val_metrics = testing_method(
+                val_dl,
+                config,
+                model,
+                config['device'],
+                wandb_run,
+                epoch
+            )
+        except Exception as e:
+            if wandb_run:
+                wandb_run.finish()
+            print(f"Pretraining stopped due to an exception during epoch {epoch}...")
+            raise e
+
+
+def run(config, wandb_group, wandb_project, save_model, unique_name, initial_validation=True):
 
     time_start = time.time()
 
@@ -43,7 +330,7 @@ def run(config, wandb_group, wandb_project, save_model, unique_name, pretrain, f
     # pretraining_loader = data_generator(pretraining_data_path, config)
 
     # Load models
-    classifier = ClassificationTransformer(config)
+    classifier = TransformiloopFinetune(config)
     print(summary(
         classifier,
         input_size=[
@@ -196,63 +483,89 @@ def run(config, wandb_group, wandb_project, save_model, unique_name, pretrain, f
     return best_model_loss_validation, best_model_f1_score_validation, best_epoch_early_stopping
 
 
-class WandBLogger:
-    def __init__(self, group_name, config, project_name, experiment_name, dataset_path):
-        self.best_model = None
-        self.experiment_name = experiment_name
-        self.config = config
-        self.dataset_path = dataset_path
-        os.environ['WANDB_API_KEY'] = "cd105554ccdfeee0bbe69c175ba0c14ed41f6e00"  # TODO insert my own key
-        self.wandb_run = wandb.init(
-            project=project_name,
-            id=experiment_name,
-            resume='allow',
-            config=config,
-            reinit=True,
-            group=group_name,
-            save_code=True)
-
-    def log(self, loggable_dict):
-        self.wandb_run.log(loggable_dict)
-
-    def update_summary(
-        self,
-        best_epoch,
-        best_f1_score,
-        best_precision,
-        best_recall,
-        best_loss,
-        best_accuracy
-    ):
-        self.wandb_run.summary['best_epoch'] = best_epoch
-        self.wandb_run.summary['best_f1_score'] = best_f1_score
-        self.wandb_run.summary['best_precision'] = best_precision
-        self.wandb_run.summary['best_recall'] = best_recall
-        self.wandb_run.summary['best_loss'] = best_loss
-        self.wandb_run.summary['best_accuracy'] = best_accuracy
-
-    def update_best_model(self):
-        self.wandb_run.save(os.path.join(
-            self.dataset_path,
-            self.experiment_name),
-            policy="live",
-            base_path=self.dataset_path)
-
-    def __del__(self):
-        self.wandb_run.finish()
-
-    def restore(self):
-        self.wandb_run.restore(self.experiment_name,
-                               root=self.dataset_path)
-
 if __name__ == "__main__":
-    
-    config = initialize_config('test')
-    if not validate_config(config):
-        raise AttributeError("Issue with config.")
-    save_model = False
-    unique_name = True
-    pretrain = False
-    finetune_encoder = True
+    # Parse arguments
+    parser = argparse.ArgumentParser()
 
-    run(config, 'experiment_clstoken_smallerlr', 'Milo-DEBUG', save_model, unique_name, pretrain, finetune_encoder)
+    # Mutually exclusive group of arguments
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument('-f', '--finetune', action='store_true', help='Finetune the model on the spindle dataset')
+    group.add_argument('-p', '--pretrain', action='store_true', help='Pretrain the model on the MASS dataset')
+
+    # Restore a run that exists or a pretrained model
+    group2 = parser.add_mutually_exclusive_group()
+    group2.add_argument('-r', '--restore', action='store_true', default=False, help='Restore a run that exists. If that option is selected, make sure to provide a run name')
+    group2.add_argument('--from_pretrained', action='store_true', default=False, help='Load the weights from a pretrained model instead of training from scratch. If that option is used, the latest pretrained model will be used.')
+    
+    # Choose what task to perform
+    group3 = parser.add_mutually_exclusive_group()
+    group3.add_argument('--spindles', action='store_true', help='Finetune the model on the spindle dataset')
+    group3.add_argument('--spindle_trains', action='store_true', help='Finetune the model on the spindle trains dataset')
+    group3.add_argument('--sleep_stages', action='store_true', help='Finetune the model on the sleep stages dataset')
+
+    # Configuration file
+    parser.add_argument('--config', type=str, default=None, help='Path to the configuration file. If none is provided, the default configuration will be used')
+
+    # WandB logging arguments
+    parser.add_argument('-l', '--log_wandb', action='store_true', default=False, help='Log the run to WandB')
+    parser.add_argument('-e', '--experiment_name', type=str, default=f"DEFAULT_EXPERIMENT", help='Name of the experiment. If none is provided, a unique experiment name will be generated.')
+    parser.add_argument('-g', '--wandb_group', type=str, default='DEFAULT_GROUP', help='Name of the WandB group (default: DEFAULT_GROUP)')
+    parser.add_argument('--wandb_project', type=str, default='Portiloop', help='Name of the WandB project (default: Portiloop)')
+
+    # Group for the model type
+    group_4 = parser.add_mutually_exclusive_group()
+    group_4.add_argument('--transformer', action='store_true', default=False, help='Use a Transformer based model')
+    group_4.add_argument('--lstm', action='store_true', default=False, help='Use a LSTM based model')
+
+    args = parser.parse_args()
+    
+    # Check if the experiment name is valid
+    if args.restore and args.experiment_name == "DEFAULT_EXPERIMENT":
+        raise AttributeError("If you are restoring a run, you must provide a run name")
+
+    # If the experiment name is not provided, generate a unique name
+    if args.experiment_name == "DEFAULT_EXPERIMENT":
+        args.experiment_name = f"Experiment_{time.time_ns()}"
+
+    # Check the pretrain and finetune arguments
+    if args.from_pretrained and args.restore:
+        raise AttributeError("You cannot use the from_pretrained and restore arguments at the same time")
+
+    # Check if the task is specified
+    if not args.spindles and not args.spindle_trains and not args.sleep_stages and args.pretrain:
+        raise AttributeError("You must specify a task to perform")
+    else:
+        if args.spindles:
+            task = 'spindles'
+        elif args.spindle_trains:
+            task = 'spindle_trains'
+        elif args.sleep_stages:
+            task = 'sleep_stages'
+        else:
+            task = None
+
+    # Load the configuration file
+    if args.from_pretrained:
+        pretrained_dict = {
+            'run_path': 'portiloop/portiloop/EXPERIMENT_1',
+            'model_name': 'model_10000.ckpt'
+        }
+    else:
+        pretrained_dict = None
+
+    if not args.lstm and not args.transformer:
+        model_type = None
+    elif args.lstm:
+        model_type = 'lstm'
+    elif args.transformer:
+        model_type = 'transformer'
+
+    if args.finetune:
+        finetune(args.wandb_group, args.wandb_project, args.experiment_name, log_wandb=args.log_wandb, restore=args.restore, task=task, pretrained_model=pretrained_dict, model_type=model_type)
+    elif args.pretrain:
+        pretrain(args.wandb_group, args.wandb_project, args.experiment_name, log_wandb=args.log_wandb, restore=args.restore)
+    else:
+        raise AttributeError("Either pretrain or finetune must be selected")
+    
+    # run(config, 'experiment_clstoken_smallerlr', 'Milo-DEBUG', save_model, unique_name, pretrain, finetune_encoder)
+    
