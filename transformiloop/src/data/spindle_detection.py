@@ -75,16 +75,12 @@ class FinetuneDataset(Dataset):
         self.signal_modif = signal_modif
 
         # list of indices that can be sampled:
-        if self.label_history:
-            self.indices = [idx for idx in range(len(self.data[0]) - self.window_size)  # all possible idxs in the dataset
-                            if not (self.data[3][idx + self.window_size - 1] < 0  # that are not ending in an unlabeled zone
-                                    or self.data[3][idx - (self.past_signal_len - self.seq_stride) + self.window_size - 1] < 0  # and not beginning in an unlabeled zone
-                                    or idx < self.past_signal_len)]  # and far enough from the beginning to build a sequence up to here
-        else:
-            self.indices = [idx for idx in range(len(self.data[0]) - self.window_size)
-                            # all possible idxs in the dataset
-                            if not (self.data[3][idx + self.window_size - 1] < 0  # that are not ending in an unlabeled zone
-                            or idx < self.past_signal_len)]  # and far enough from the beginning to build a sequence up to here
+        self.indices = [idx for idx in range(len(self.data[0])-self.window_size) # all possible idxs in the dataset
+                        if not (self.data[3][idx+self.window_size-1]<0 # that are not ending in an unlabeled zone
+                        or idx < self.past_signal_len # and far enough from the beginning to build a sequence up to here
+                        or (self.label_history and self.data[3][idx - (self.past_signal_len - self.seq_stride) + self.window_size - 1] < 0)) # and not beginning in an unlabeled zone
+                        ]
+
         total_spindles = np.sum(self.data[3] > self.threshold)
         print(f"total number of spindles in this dataset : {total_spindles}")
 
