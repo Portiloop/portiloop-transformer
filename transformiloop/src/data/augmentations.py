@@ -5,13 +5,11 @@ def one_hot_encoding(X):
     X = [int(x) for x in X]
     n_values = np.max(X) + 1
     b = np.eye(n_values)[X]
-    # print(type(b))
     return b.astype(int)
 
 def DataTransform(sample, aug_config):
     """Weak and strong augmentations"""
     weak_aug = scaling(sample, aug_config['jitter_scale_ratio'])
-    # weak_aug = permutation(sample, max_segments=config.augmentation.max_seg)
     strong_aug = jitter(permutation(sample, max_segments=aug_config['max_seg']), aug_config['jitter_ratio'])
 
     return weak_aug, strong_aug
@@ -22,15 +20,9 @@ def DataTransform_TD(sample, aug_config):
     aug_2 = scaling(sample, aug_config['jitter_scale_ratio'])
     if sample.shape[0] > 1:
         aug_3 = permutation(sample, max_segments=aug_config['max_seg'])
-    # li = np.random.randint(0, 4, size=[sample.shape[0]])
-    # li_onehot = one_hot_encoding(li)
-    # aug_1[1-li_onehot[:, 0]] = 0 # the rows are not selected are set as zero.
-    # aug_2[1 - li_onehot[:, 1]] = 0
     aug_T = aug_1 + aug_2
     if sample.shape[0] > 1:
-    #     aug_3[1 - li_onehot[:, 2]] = 0
-        aug_T += aug_3 #+aug_4
-    # print('got here 2')
+        aug_T += aug_3
     
     return aug_T
 
@@ -39,15 +31,8 @@ def DataTransform_FD(sample, device):
     """Weak and strong augmentations in Frequency domain """
     aug_1 =  remove_frequency(sample, device, 0.1)
     aug_2 = add_frequency(sample, device, 0.1)
-
-    # generate random sequence
-    # li = np.random.randint(0, 2, size=[sample.shape[0]]) # there are two augmentations in Frequency domain
-    # li_onehot = one_hot_encoding(li)
-    # aug_1[1-li_onehot[:, 0]] = 0 # the rows are not selected are set as zero.
-    # aug_2[1 - li_onehot[:, 1]] = 0
     aug_F = aug_1 + aug_2
     return aug_F
-
 
 
 def generate_binomial_mask(B, T, D, p=0.5):
@@ -56,11 +41,8 @@ def generate_binomial_mask(B, T, D, p=0.5):
 def masking(x, mask='binomial'):
     nan_mask = ~x.isnan().any(axis=-1)
     x[~nan_mask] = 0
-
     if mask == 'binomial':
         mask_id = generate_binomial_mask(x.size(0), x.size(1), x.size(2), p=0.9).to(x.device)
-
-    # mask &= nan_mask
     x[~mask_id] = 0
     return x
 
