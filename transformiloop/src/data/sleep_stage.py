@@ -1,14 +1,29 @@
+import csv
 import os
 import random
-import numpy as np
-import pyedflib
-import csv
-from torch.utils.data import Dataset, DataLoader, Sampler
+
 import torch
+from torch.utils.data import Dataset, DataLoader, Sampler
+
 from transformiloop.src.data.pretraining import read_pretraining_dataset
 
+def divide_subjects_into_sets(labels:dict[str, list[str]])->tuple[list[str], list[str]]:
+    """
+    Divide the subjects into train and test sets.
 
-def get_dataloaders_sleep_stage(MASS_dir, ds_dir, config):
+    Args:
+        labels (dict[str, list[str]]): A dictionary with the subjects id as keys and a list of sleep stages as values.
+
+    Returns:
+        tuple[list[str], list[str]]: A tuple containing two lists: the first list contains the subjects in the train set, and the second list contains the subjects in the test set.
+    """
+    subjects = list(labels.keys())
+    random.shuffle(subjects)
+    train_subjects = subjects[:int(len(subjects) * 0.8)]
+    test_subjects = subjects[int(len(subjects) * 0.8):]
+    return train_subjects, test_subjects
+
+def get_dataloaders_sleep_stage(MASS_dir:str, ds_dir, config):
     """
     Get the dataloaders for the MASS dataset
     - Start by dividing the available subjects into train and test sets
@@ -17,11 +32,7 @@ def get_dataloaders_sleep_stage(MASS_dir, ds_dir, config):
     # Read all the subjects available in the dataset
     labels = read_sleep_staging_labels(ds_dir) 
 
-    # Divide the subjects into train and test sets
-    subjects = list(labels.keys())
-    random.shuffle(subjects)
-    train_subjects = subjects[:int(len(subjects) * 0.8)]
-    test_subjects = subjects[int(len(subjects) * 0.8):]
+    train_subjects, test_subjects = divide_subjects_into_sets(labels)
 
     # Read the pretraining dataset
     data = read_pretraining_dataset(MASS_dir)
@@ -49,10 +60,16 @@ def get_dataloaders_sleep_stage(MASS_dir, ds_dir, config):
     return train_dataloader, test_dataloader
 
 
-def read_sleep_staging_labels(MASS_dir):
-    '''
+def read_sleep_staging_labels(MASS_dir:str)->dict[str, list[str]]:
+    """
     Read the sleep_staging.csv file in the given directory and stores info in a dictionary
-    '''
+
+    Args:
+        MASS_dir (str): The path to the MASS directory
+
+    Returns:
+        dict[str, list[str]]: A dictionary with the subjects id as keys and a list of sleep stages as values.
+    """
     # Read the sleep_staging.csv file 
     sleep_staging_file = os.path.join(MASS_dir, 'sleep_staging.csv')
     with open(sleep_staging_file, 'r') as f:

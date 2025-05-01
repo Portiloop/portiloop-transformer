@@ -224,6 +224,7 @@ if __name__ == '__main__':
     """
     Main function to generate the pretraining dataset.
     Can be run from the command line with the following arguments:
+    
     Args:
         -r, --pretraining: Generate the pretraining dataset.
         -s, --sleep_staging: Generate the Sleep Staging dataset.
