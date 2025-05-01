@@ -1,11 +1,12 @@
 import pathlib
-from sys import float_info
-from transformiloop.src.data.pretraining import PretrainingDataset, ValidationSampler
-from transformiloop.src.utils.configs import initialize_config, validate_config
-from torch.utils.data.sampler import RandomSampler
 import unittest
+
 import torch
 from torch.utils.data import DataLoader
+from torch.utils.data.sampler import RandomSampler
+
+from transformiloop.src.data.pretraining import PretrainingDataset
+from transformiloop.src.utils.configs import initialize_config, validate_config
 
 MAX_ITER_TEST = 6
 

@@ -1,11 +1,10 @@
 import csv
 import logging
 import os
-import random
 
 import pyedflib
 import torch
-from torch.utils.data import Dataset, Sampler
+from torch.utils.data import Dataset
 
 
 def read_patient_info(dataset_path):
@@ -152,16 +151,3 @@ class PretrainingDataset(Dataset):
                 raise RuntimeError("Issue with masks, shouldn't get a value not in {0, 1, 2, 3}")
 
         return x_data, x_gender, x_age, mask, masked_seq
-
-class ValidationSampler(Sampler):
-    def __init__(self, data_source, dividing_factor):
-        self.len_max = len(data_source)
-        self.data = data_source
-        self.dividing_factor = dividing_factor
-
-    def __iter__(self):
-        for idx in range(0, self.len_max, self.dividing_factor):
-            yield random.randint(0, self.len_max - 1)
-
-    def __len__(self):
-        return self.len_max // self.dividing_factor
