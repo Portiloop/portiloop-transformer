@@ -9,9 +9,14 @@ import pandas as pd
 
 
 
-def generate_sleep_staging_dataset(MASS_directory, output_directory, subset_format='SS{}_EDF'):
+def generate_sleep_staging_dataset(MASS_directory:str, output_directory:str, subset_format:str='SS{}_EDF'):
     """
     Generates a large CSV file containing all the sleep staging data available in the given MASS directory.
+
+    Args:
+        MASS_directory (str): Path to the desired MASS directory.
+        output_directory (str): Path to the desired output directory.
+        subset_format (str): Format for the names of the subset directories.
     """
     # Collect all subset directories
     subsets_dir_names = [subset_format.format(i) for i in range(1, 6)]
@@ -20,7 +25,7 @@ def generate_sleep_staging_dataset(MASS_directory, output_directory, subset_form
     # Collect all desired filenames in those directories
     subject_filenames = extract_dataset_filenames(ss_dirs, filename_contains="Base.edf")
 
-    # create empty dictionary
+    # create an empty dictionary
     data = {}
 
     # Extract info from the desired files
@@ -125,9 +130,16 @@ def resample_signal(signal, fe_in=256, fe_out=250):
     return np.interp(x, xp, signal)
 
 
-def extract_dataset_filenames(directories, filename_contains="PSG.edf"):
+def extract_dataset_filenames(directories:list[str], filename_contains:str="PSG.edf")->list[str]:
     """
     Parse the given directories and return a list of all files that contains the given string. 
+
+    Args:
+        directories (list[str]): List of paths to the directories.
+        filename_contains (str): Target string to find in files.
+
+    Returns:
+        list[str]: List of paths to the files which contain the desired string.
     """
     return [os.path.join(dir, file) for dir in directories for file in os.listdir(dir) if filename_contains in file]
 
