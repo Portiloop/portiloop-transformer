@@ -1,12 +1,11 @@
-from copy import deepcopy
+import csv
 import logging
 import os
-import csv
 import random
+
 import pyedflib
-from torch.utils.data import Dataset, Sampler
-import numpy as np
 import torch
+from torch.utils.data import Dataset, Sampler
 
 
 def read_patient_info(dataset_path):
