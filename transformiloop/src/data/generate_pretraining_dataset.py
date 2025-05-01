@@ -1,13 +1,29 @@
 import argparse
 import logging
-import numpy as np
-import pyedflib 
 import os
-from pathlib import Path
-from pyedflib.highlevel import write_edf_quick
+
+import numpy as np
 import pandas as pd
+import pyedflib
+from pyedflib.highlevel import write_edf_quick
 
+def extract_subject_filenames(MASS_directory:str, subset_format:str)->list[str]:
+    """
+    Collects all the subject filenames from the desired MASS directory.
 
+    Args:
+        MASS_directory (str): Path to the desired MASS directory.
+        subset_format (str): Format for the names of the subset directories.
+
+    Returns:
+        list[str]: List of paths to the subject files.
+    """
+    # Collect all subset directories
+    subsets_dir_names = [subset_format.format(i) for i in range(1, 6)]
+    ss_dirs = [os.path.join(MASS_directory, dir) for dir in os.listdir(MASS_directory) if dir in subsets_dir_names]
+
+    # Collect all desired filenames in those directories
+    return extract_files_with_filenames(ss_dirs, filename_contains="Base.edf")
 
 def generate_sleep_staging_dataset(MASS_directory:str, output_directory:str, subset_format:str='SS{}_EDF'):
     """
@@ -18,12 +34,7 @@ def generate_sleep_staging_dataset(MASS_directory:str, output_directory:str, sub
         output_directory (str): Path to the desired output directory.
         subset_format (str): Format for the names of the subset directories.
     """
-    # Collect all subset directories
-    subsets_dir_names = [subset_format.format(i) for i in range(1, 6)]
-    ss_dirs = [os.path.join(MASS_directory, dir) for dir in os.listdir(MASS_directory) if dir in subsets_dir_names]
-
-    # Collect all desired filenames in those directories
-    subject_filenames = extract_dataset_filenames(ss_dirs, filename_contains="Base.edf")
+    subject_filenames = extract_subject_filenames(MASS_directory, subset_format)
 
     # create an empty dictionary
     data = {}
@@ -43,14 +54,19 @@ def generate_sleep_staging_dataset(MASS_directory:str, output_directory:str, sub
             # add to dataframe
             data[subject_id] = subject_data
 
-    # Save the data dictionary to json
+    # Save the data dictionary to JSON
     df = pd.DataFrame.from_dict(data, orient='index')
     df.to_csv(os.path.join(output_directory, "sleep_staging.csv"))
 
-
-def extract_sleep_staging_data(annotations):
+def extract_sleep_staging_data(annotations:tuple[np.ndarray, np.ndarray, np.ndarray])->np.array:
     """
     Extracts the sleep staging data from the annotations of a single subject.
+
+    Args:
+        annotations (tuple[np.ndarray, np.ndarray, np.ndarray]): Tuple of (onsets, durations, labels)
+
+    Returns:
+        np.array: Array of sleep staging labels for the subject.
     """
     curr_index = 0
     labels = []
@@ -73,25 +89,29 @@ def extract_sleep_staging_data(annotations):
     return np.array(labels)
 
 
-def generate_dataset(MASS_directory, output_directory, subset_format='SS{}_EDF', prim_channels=["C3"], ref_channel="A2", fe_in=256, fe_out=250):
+def generate_dataset(MASS_directory:str, output_directory:str, subset_format:str='SS{}_EDF', prim_channels:list[str]=["C3"], ref_channel:str="A2", fe_in:int=256, fe_out:int=250):
     """
     Generates the pretraining dataset from MASS in the specified output directory.
     Note that the names of the folders of each subset must be in the format 'SS{subset number}_EDF'.
     We also assume that the subject IDs are the first ten characters of each filename.
+
+    Args:
+        MASS_directory (str): Path to the desired MASS directory.
+        output_directory (str): Path to the desired output directory.
+        subset_format (str): Format for the names of the subset directories.
+        prim_channels list[str]: List of primary channels to extract from the EDF files.
+        ref_channel (str): Reference channel.
+        fe_in (int): Input frequency.
+        fe_out (int): Output frequency.
     """
 
-    # Collect all subset directories
-    subsets_dir_names = [subset_format.format(i) for i in range(1, 6)]
-    ss_dirs = [os.path.join(MASS_directory, dir) for dir in os.listdir(MASS_directory) if dir in subsets_dir_names]
-
-    # Collect all desired filenames in those directories
-    subject_filenames = extract_dataset_filenames(ss_dirs)
+    subject_filenames = extract_subject_filenames(MASS_directory, subset_format)
     
     # Read the reference file
     reference_list = pd.read_csv(os.path.join(MASS_directory, "reference_list.txt"), delim_whitespace=True)
     ref_dict = reference_list.groupby(['subject']).apply(lambda x: x['channel'].tolist()).to_dict()
 
-    # Extract desired signal from the desired EDF files and store them in other EDFs.
+    # Extract the desired signal from the desired EDF files and store them in other EDFs.
     for filename in subject_filenames:
         # Get subject ID and check if we must rereference
         subject_id = os.path.basename(filename)[:10]
@@ -105,22 +125,29 @@ def generate_dataset(MASS_directory, output_directory, subset_format='SS{}_EDF',
         signals = readEDF(filename, prim_channels, ref_chann)
 
         if signals is not None:
-            # Write to a new EDF file in desired output directory
+            # Write to a new EDF file in the desired output directory
             subject_id = os.path.basename(filename)[:10]
             out_file = os.path.join(output_directory, subject_id + ".edf")
 
-            # If the in frequency and out frequency are different, resample the signal
+            # If the input frequency and output frequency are different, resample the signal
             if fe_in != fe_out:
                 signals = [resample_signal(signal) for signal in signals]
 
             # Write to a new EDF file
-            print(f"Writing new edf file {out_file}")
             write_edf_quick(out_file, signals, fe_out)
 
 
-def resample_signal(signal, fe_in=256, fe_out=250):
+def resample_signal(signal:np.ndarray, fe_in:int=256, fe_out:int=250)->np.ndarray:
     """ 
     Resamples the given signal from fe_in to fe_out
+
+    Args:
+        signal (np.ndarray): Signal to resample.
+        fe_in (int): Input frequency.
+        fe_out (int): Output frequency.
+
+    Returns:
+        np.ndarray: Resampled signal.
     """
     len_seconds = len(signal) / fe_in
     number_points_out = int(len_seconds * fe_out)
@@ -130,7 +157,7 @@ def resample_signal(signal, fe_in=256, fe_out=250):
     return np.interp(x, xp, signal)
 
 
-def extract_dataset_filenames(directories:list[str], filename_contains:str="PSG.edf")->list[str]:
+def extract_files_with_filenames(directories:list[str], filename_contains:str="PSG.edf")->list[str]:
     """
     Parse the given directories and return a list of all files that contains the given string. 
 
@@ -144,10 +171,18 @@ def extract_dataset_filenames(directories:list[str], filename_contains:str="PSG.
     return [os.path.join(dir, file) for dir in directories for file in os.listdir(dir) if filename_contains in file]
 
 
-def readEDF(filename, prim_channels, ref_channel=None):
+def readEDF(filename:str, prim_channels:list[str], ref_channel:str=None)->list[np.ndarray] or None:
     """
     Read an EDF file from MASS Dataset, extract the desired primary channels and return them.
     Uses the reference channel to rereference them.
+
+    Args:
+        filename (str): Path to the EDF file.
+        prim_channels (list[str]): List of primary channels to extract.
+        ref_channel (str): Reference channel.
+
+    Returns:
+        list[np.ndarray] or None: List of extracted signals or None if the file is corrupted.
     """
     signals = None
     try:
@@ -186,6 +221,9 @@ def readEDF(filename, prim_channels, ref_channel=None):
 
 
 if __name__ == '__main__':
+    """
+    Main function to generate the pretraining dataset.
+    """
     # Parse inputs
     parser = argparse.ArgumentParser()
     # Mutually exclusive arguments
