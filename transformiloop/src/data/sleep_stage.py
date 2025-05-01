@@ -3,7 +3,10 @@ import os
 import random
 
 import torch
+from numpy import ndarray
+from torch import Tensor
 from torch.utils.data import Dataset, DataLoader, Sampler
+from wandb.sdk import Config
 
 from transformiloop.src.data.pretraining import read_pretraining_dataset
 
@@ -23,11 +26,19 @@ def divide_subjects_into_sets(labels:dict[str, list[str]])->tuple[list[str], lis
     test_subjects = subjects[int(len(subjects) * 0.8):]
     return train_subjects, test_subjects
 
-def get_dataloaders_sleep_stage(MASS_dir:str, ds_dir, config):
+def get_dataloaders_sleep_stage(MASS_dir:str, ds_dir:str, config:Config)->tuple[DataLoader, DataLoader]:
     """
     Get the dataloaders for the MASS dataset
     - Start by dividing the available subjects into train and test sets
     - Create the train and test datasets and dataloaders
+
+    Args:
+        MASS_dir (str): The path to the MASS directory.
+        ds_dir (str): The path to the dataset directory.
+        config (Config): The configuration object.
+
+    Returns:
+        tuple[DataLoader, DataLoader]: A tuple containing two dataloaders: the first one for the train set, and the second one for the test set.
     """
     # Read all the subjects available in the dataset
     labels = read_sleep_staging_labels(ds_dir) 
@@ -83,32 +94,38 @@ def read_sleep_staging_labels(MASS_dir:str)->dict[str, list[str]]:
         sleep_stages[subject] = [stage for stage in sleep_staging[i][1:] if stage != '']
 
     return sleep_stages
-    
-
-class SleepStageSampler(Sampler):
-    def __init__(self, dataset, config):
-        self.dataset = dataset
-        self.window_size = config['window_size']
-        self.max_len = len(dataset) - self.dataset.past_signal_len - self.window_size
-
-    def __iter__(self):
-        while True:
-            index = random.randint(0, self.max_len - 1)
-            # Make sure that the label at the end of the window is not '?'
-            label = self.dataset.full_labels[index + self.dataset.past_signal_len + self.window_size - 1]
-            if label != SleepStageDataset.get_labels().index('?'):
-                yield index
-
-    def __len__(self):
-        return len(self.indices)
-
 
 class SleepStageDataset(Dataset):
-    def __init__(self, subjects, data, labels, config):
-        '''
-        This class takes in a list of subject, a path to the MASS directory 
+    """
+    This class represents a dataset for sleep stage prediction.
+
+    :ivar config: Configuration options containing parameters such as `window_size`, `seq_len`,
+        and `seq_stride`.
+    :type config: Config
+    :ivar window_size: Size of the window for extracting signal patches.
+    :type window_size: int
+    :ivar seq_len: Length of the sequence used in preprocessing.
+    :type seq_len: int
+    :ivar seq_stride: Stride length for advancing the sequence window.
+    :type seq_stride: int
+    :ivar past_signal_len: Number of past signals required before the last window in a sequence.
+    :type past_signal_len: int
+    :ivar full_signal: Concatenated tensor of all signals from the specified subjects.
+    :type full_signal: Tensor
+    :ivar full_labels: Concatenated tensor of all labels associated with the signals.
+    :type full_labels: Tensor
+    """
+    def __init__(self, subjects:list[str], data:dict[str, dict[str, int | str | ndarray | Tensor]], labels:dict[str, list[str]], config:Config):
+        """
+        This class takes in a list of subject, a path to the MASS directory
         and reads the files associated with the given subjects as well as the sleep stage annotations
-        '''
+
+        Args:
+            subjects (list[str]): List of subject IDs
+            data (dict[str, dict[str, int | str | ndarray | Tensor]]): Dictionary containing the pretraining dataset
+            labels (dict[str, list[str]]): Dictionary containing the sleep stage labels for each subject
+            config (Config): Configuration dictionary containing required settings.
+        """
         super().__init__()
 
         self.config = config
@@ -119,8 +136,8 @@ class SleepStageDataset(Dataset):
         self.past_signal_len = (self.seq_len - 1) * self.seq_stride
 
         # Get the sleep stage labels
-        self.full_signal = []
-        self.full_labels = []
+        full_signal = []
+        full_labels = []
 
         for subject in subjects:
             if subject not in data.keys():
@@ -141,18 +158,39 @@ class SleepStageDataset(Dataset):
             assert len(signal) == len(label)
 
             # Add to full signal and full label
-            self.full_labels.append(torch.tensor(label, dtype=torch.uint8))
-            self.full_signal.append(signal)
+            full_labels.append(torch.tensor(label, dtype=torch.uint8))
+            full_signal.append(signal)
             del data[subject], signal, label
         
-        self.full_signal = torch.cat(self.full_signal)
-        self.full_labels = torch.cat(self.full_labels)
+        self.full_signal = torch.cat(full_signal)
+        self.full_labels = torch.cat(full_labels)
 
     @staticmethod
     def get_labels():
+        """
+        Return the list of sleep stage labels.
+
+        Returns:
+            list[str]: List of sleep stage labels.
+        """
         return ['1', '2', '3', 'R', 'W', '?']
 
-    def __getitem__(self, index):
+    def __getitem__(self, index:int) -> tuple[Tensor, Tensor]:
+        """
+        Retrieve a sequence of signal data and corresponding label based on the provided index.
+
+        :param index: The index of the data to retrieve. It is adjusted internally
+            by adding the length of the past signal.
+
+        :return: A tuple containing:
+            - A tensor representing the unfolded signal data within the specified
+              window size and sequence stride.
+            - A tensor containing the label corresponding to the end of the unfolded
+              signal window, converted to a long integer type.
+
+        :raises AssertionError: Raised if the label at the specified index is equal
+            to 5, indicating that the label is invalid (represented as '?').
+        """
         # Get the signal and label at the given index
         index += self.past_signal_len
 
@@ -163,7 +201,64 @@ class SleepStageDataset(Dataset):
 
         assert label != 5, "Label is '?'"
 
-        return signal, label.type(torch.LongTensor)
+        return signal, label.type(torch.long)
 
     def __len__(self):
+        """
+        Calculate the number of elements in the `full_signal`.
+
+        :return: The length of the `full_signal` sequence.
+        :rtype: int
+        """
         return len(self.full_signal)
+
+class SleepStageSampler(Sampler):
+    """
+    A data sampler class for sleep stage datasets.
+
+    :ivar dataset: The dataset from which the sampler draws samples.
+    :type dataset: SleepStageDataset
+    :ivar window_size: The size of the data window to sample, as specified in the configuration.
+    :type window_size: int
+    :ivar max_len: The maximum index for sampling, adjusted for past signals and window size.
+    :type max_len: int
+    """
+    def __init__(self, dataset:SleepStageDataset, config:Config):
+        """
+        Initializes the instance of the class.
+
+        Args:
+            dataset (SleepStageDataset): The dataset object containing sleep stage data.
+            config (Config): Configuration dictionary containing required settings
+        """
+        super().__init__()
+        self.dataset = dataset
+        self.window_size = config['window_size']
+        self.max_len = len(dataset) - self.dataset.past_signal_len - self.window_size
+
+    def __iter__(self):
+        """
+        Provides an iterator interface for random sampling over a dataset that ensures
+        specific conditions are met for the sampled data. The method generates indices
+        to access the dataset while verifying that the label at a particular position
+        is valid and not a placeholder.
+
+        :return: Yields indices of entries in the dataset that meet the specified
+            conditions.
+        :rtype: Iterator[int]
+        """
+        while True:
+            index = random.randint(0, self.max_len - 1)
+            # Make sure that the label at the end of the window is not '?'
+            label = self.dataset.full_labels[index + self.dataset.past_signal_len + self.window_size - 1]
+            if label != SleepStageDataset.get_labels().index('?'):
+                yield index
+
+    def __len__(self):
+        """
+        Represents the length functionality for the object containing a dataset.
+
+        :return: The length of the dataset.
+        :rtype: int
+        """
+        return len(self.dataset)
