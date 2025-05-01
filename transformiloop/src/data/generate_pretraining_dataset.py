@@ -223,6 +223,11 @@ def readEDF(filename:str, prim_channels:list[str], ref_channel:str=None)->list[n
 if __name__ == '__main__':
     """
     Main function to generate the pretraining dataset.
+    Can be run from the command line with the following arguments:
+    Args:
+        -r, --pretraining: Generate the pretraining dataset.
+        -s, --sleep_staging: Generate the Sleep Staging dataset.
+        -a, --all: Generate all datasets.
     """
     # Parse inputs
     parser = argparse.ArgumentParser()
