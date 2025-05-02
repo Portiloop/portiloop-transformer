@@ -17,7 +17,7 @@ from torch.nn import BCEWithLogitsLoss
 from torchinfo import summary
 from transformiloop.src.data.pretraining import PretrainingDataset
 from transformiloop.src.data.sleep_stage import get_dataloaders_sleep_stage
-from transformiloop.src.data.spindle_detection import get_dataloaders
+from transformiloop.src.data.temp import get_dataloaders
 from transformiloop.src.data.spindle_trains import get_dataloaders_spindle_trains
 from transformiloop.src.models.lstm import PortiloopNetwork, get_final_model_config_dict
 from transformiloop.src.models.transformers import TransformiloopFinetune, TransformiloopPretrain, GRUClassifier

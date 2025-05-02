@@ -5,11 +5,29 @@ from copy import deepcopy
 import numpy as np
 import torch
 from numpy import ndarray
-from torch.utils.data import Dataset
 from wandb.sdk import Config
 
+from transformiloop.src.data.spindle_detection.datasets.abstract_spindle_dataset import AbstractSpindleDataset
 
-class FinetuneDataset(Dataset):
+
+def default_modif(signal: torch.Tensor) -> torch.Tensor:
+    """
+    Return a modified signal by flipping the sign of a random sample.
+
+    Args:
+        signal (torch.Tensor): Input signal tensor.
+
+    Returns:
+        torch.Tensor: Modified signal tensor.
+    """
+    # Get one random sequence
+    modified_index = random.randint(0, signal.size(0) - 1)
+    new_sig = deepcopy(signal)
+    new_sig[modified_index] = -signal[modified_index]
+    return new_sig
+
+
+class FinetuneDataset(AbstractSpindleDataset):
     """
     Custom dataset class tailored for fine-tuning a deep learning model, specifically for spindle
     recognition and related signal processing tasks.
@@ -134,7 +152,7 @@ class FinetuneDataset(Dataset):
 
         if self.pretraining:
             if random.uniform(0, 1) < self.modif_ratio:
-                x_data = self.signal_modif(x_data) if self.signal_modif is not None else self.default_modif(x_data)
+                x_data = self.signal_modif(x_data) if self.signal_modif is not None else default_modif(x_data)
                 label = torch.tensor(1, dtype=torch.float)
             else:
                 label = torch.tensor(0, dtype=torch.float)
@@ -158,33 +176,3 @@ class FinetuneDataset(Dataset):
         return x_data, label
 
 
-    def is_spindle(self, idx: int) -> bool:
-        """
-        Verify if a sample is a spindle.
-
-        Args:
-            idx (int): Index of the sample to check.
-
-        Returns:
-            bool: True if the sample is a spindle, False otherwise.
-        """
-        assert 0 <= idx <= len(self), f"Index out of range ({idx}/{len(self)})."
-        idx = self.indices[idx]
-        return True if (self.data[3][idx + self.window_size - 1] > self.threshold) else False
-
-
-    def default_modif(self, signal: torch.Tensor) -> torch.Tensor:
-        """
-        Return a modified signal by flipping the sign of a random sample.
-
-        Args:
-            signal (torch.Tensor): Input signal tensor.
-
-        Returns:
-            torch.Tensor: Modified signal tensor.
-        """
-        # Get one random sequence
-        modified_index = random.randint(0, signal.size(0) - 1)
-        new_sig = deepcopy(signal)
-        new_sig[modified_index] = -signal[modified_index]
-        return new_sig

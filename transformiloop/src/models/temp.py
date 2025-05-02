@@ -8,7 +8,7 @@ import torch.nn as nn
 from torchinfo import summary
 import torch
 from transformiloop.src.utils.train_utils import finetune_epoch, finetune_test_epoch_lstm
-from transformiloop.src.data.spindle_detection import get_dataloaders
+from transformiloop.src.data.temp import get_dataloaders
 
 import torch.optim as optim
 

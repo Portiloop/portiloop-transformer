@@ -4,7 +4,7 @@ import unittest
 import torch
 from torch.utils.data import DataLoader
 
-from transformiloop.src.data.spindle_detection import FinetuneDataset, get_subject_list, get_data
+from transformiloop.src.data.temp import FinetuneDataset, get_subject_list, get_data
 from transformiloop.src.utils.configs import initialize_config, validate_config
 
 MAX_ITER_TEST = 100
@@ -65,7 +65,7 @@ class TestDataset(unittest.TestCase):
         # Check that default modification works as intended
         # Gets the first index where the label is zero (no modifications have been made)
         index = (first_label_train == 0).nonzero()[0]
-        modified = train_ds.default_modif(first_element_train[index])
+        modified = default_modif(first_element_train[index])
 
         # Check that the proportion of modified is roughly what we want
         ones, total = 0, 0
