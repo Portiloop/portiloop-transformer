@@ -9,6 +9,7 @@ from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader
 from wandb.sdk import Config
 
+from transformiloop.src.data.spindle_detection.datasets.abstract_spindle_dataset import AbstractSpindleDataset
 from transformiloop.src.data.spindle_detection.datasets.finetune_dataset import FinetuneDataset
 from transformiloop.src.data.spindle_detection.samplers.random_sampler import RandomSampler
 from transformiloop.src.data.spindle_detection.samplers.validation_sampler import ValidationSampler
@@ -66,9 +67,13 @@ def get_data(dataset_path:str)->ndarray:
     return data
 
 
-def get_class_idxs(dataset, distribution_mode):
+def get_class_idxs(dataset:AbstractSpindleDataset, distribution_mode:int)->tuple[ndarray, ndarray]:
     """
     Directly outputs idx_true and idx_false arrays
+
+    Args:
+        dataset (AbstractSpindleDataset): dataset object.
+        distribution_mode (int): distribution mode (0: no modification, 1: only spindles).
     """
     length_dataset = len(dataset)
 
@@ -92,7 +97,16 @@ def get_class_idxs(dataset, distribution_mode):
     return np.array(idx_true), np.array(idx_false)
 
 
-def get_info_subject(subjects, config):
+def get_info_subject(subjects:ndarray, config:Config)->tuple[int, int]:
+    """
+    Returns the number of segments and the batch size for a given subject list.
+    Args:
+        subjects (ndarray): subject list.
+        config (Config): config dictionary.
+
+    Returns:
+        tuple[int, int]: nb_segment, batch_size.
+    """
     nb_segment = len(np.hstack([range(int(s[1]), int(s[2])) for s in subjects]))
     batch_size = len(list(range(0, (config['seq_stride'] // config['network_stride']) * config['network_stride'], config['network_stride']))) * nb_segment
     return nb_segment, batch_size
@@ -128,12 +142,8 @@ def get_dataloaders(config:Config, dataset_path:str)->tuple[DataLoader, DataLoad
     print(f"Batch Size validation: {batch_size_val}")
     print(f"Batch Size test: {batch_size_test}")
 
-    # if config['full_transformer']:
     val_sampler = ValidationSampler(config['seq_stride'], nb_segment_val, config['network_stride'])
     test_sampler = ValidationSampler(config['seq_stride'], nb_segment_test, config['network_stride'])
-    # else:
-    #     val_sampler = ValidationSamplerSimple(val_ds, config['network_stride'])
-    #     test_sampler = ValidationSamplerSimple(test_ds, config['network_stride'])
     
     if config['pretraining']:
         train_dl = DataLoader(
