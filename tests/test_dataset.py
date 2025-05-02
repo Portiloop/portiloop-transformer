@@ -1,11 +1,11 @@
 import pathlib
-from sys import float_info
-from transformiloop.src.data.spindle_detection import FinetuneDataset, RandomSampler, get_class_idxs, get_info_subject, get_subject_list, get_data
-from transformiloop.src.utils.configs import initialize_config, validate_config
 import unittest
+
 import torch
 from torch.utils.data import DataLoader
 
+from transformiloop.src.data.spindle_detection import FinetuneDataset, get_subject_list, get_data
+from transformiloop.src.utils.configs import initialize_config, validate_config
 
 MAX_ITER_TEST = 100
 

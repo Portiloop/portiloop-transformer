@@ -90,62 +90,6 @@ def get_class_idxs(dataset, distribution_mode):
     return np.array(idx_true), np.array(idx_false)
 
 
-class RandomSampler(Sampler):
-    """
-    Samples elements randomly and evenly between the two classes.
-    The sampling happens WITH replacement.
-    __iter__ stops after an arbitrary number of iterations = batch_size_list * nb_batch
-    Arguments:
-      idx_true: np.array
-      idx_false: np.array
-      batch_size (int)
-      nb_batch (int, optional): number of iteration before end of __iter__(), this defaults to len(data_source)
-    """
-
-    def __init__(self, idx_true, idx_false, config):
-        self.idx_true = idx_true
-        self.idx_false = idx_false
-        self.nb_true = self.idx_true.size
-        self.nb_false = self.idx_false.size
-        self.length = config['batches_per_epoch'] * config['batch_size']
-
-    def __iter__(self):
-        global precision_validation_factor
-        global recall_validation_factor
-        cur_iter = 0
-        proba = 0.5
-
-        while cur_iter < self.length:
-            cur_iter += 1
-            sample_class = np.random.choice([0, 1], p=[1 - proba, proba])
-            if sample_class:  # sample true
-                idx_file = random.randint(0, self.nb_true - 1)
-                idx_res = self.idx_true[idx_file]
-            else:  # sample false
-                idx_file = random.randint(0, self.nb_false - 1)
-                idx_res = self.idx_false[idx_file]
-            
-            # print('Sampled at index {}'.format(idx_res))
-            yield idx_res
-
-    def __len__(self):
-        return self.length
-
-
-class ValidationSamplerSimple(Sampler):
-    def __init__(self, data_source, dividing_factor):
-        self.len_max = len(data_source)
-        self.data = data_source
-        self.dividing_factor = dividing_factor
-
-    def __iter__(self):
-        for idx in range(0, self.len_max, self.dividing_factor):
-            yield idx
-
-    def __len__(self):
-        return self.len_max // self.dividing_factor
-
-
 class SignalDataset(Dataset):
     def __init__(self, filename, path, window_size, fe, seq_len, seq_stride, list_subject, len_segment):
         self.fe = fe
