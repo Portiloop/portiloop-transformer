@@ -1,13 +1,17 @@
 import logging
 import os
-import random
 import time
 
 import numpy as np
 import pandas as pd
 from numpy import ndarray
 from sklearn.model_selection import train_test_split
-from torch.utils.data import DataLoader, Sampler
+from torch.utils.data import DataLoader
+from wandb.sdk import Config
+
+from transformiloop.src.data.spindle_detection.datasets.finetune_dataset import FinetuneDataset
+from transformiloop.src.data.spindle_detection.samplers.random_sampler import RandomSampler
+from transformiloop.src.data.spindle_detection.samplers.validation_sampler import ValidationSampler
 
 DATASET_FILE = 'dataset_classification_full_big_250_matlab_standardized_envelope_pf.txt'
 
@@ -88,51 +92,24 @@ def get_class_idxs(dataset, distribution_mode):
     return np.array(idx_true), np.array(idx_false)
 
 
-
-
-class ValidationSampler(Sampler):
-    """
-    network_stride (int >= 1, default: 1): divides the size of the dataset (and of the batch) by striding further than 1
-    """
-
-    def __init__(self, seq_stride, nb_segment, network_stride):
-        network_stride = int(network_stride)
-        assert network_stride >= 1
-        self.network_stride = network_stride
-        self.seq_stride = seq_stride
-        self.nb_segment = nb_segment
-        self.len_segment = 115 * 250  # 115 seconds x 250 Hz
-
-    def __iter__(self):
-        random.seed()
-        batches_per_segment = self.len_segment // self.seq_stride  # len sequence = 115 s + add the 15 first s?
-        cursor_segment = 0
-        while cursor_segment < batches_per_segment:
-            for i in range(self.nb_segment):
-                for j in range(0, (self.seq_stride // self.network_stride) * self.network_stride, self.network_stride):
-                    cur_idx = i * self.len_segment + j + cursor_segment * self.seq_stride
-                    # print(f"i:{i}, j:{j}, self.len_segment:{self.len_segment}, cursor_batch:{cursor_batch}, self.seq_stride:{self.seq_stride}, cur_idx:{cur_idx}")
-                    yield cur_idx
-            cursor_segment += 1
-
-    def __len__(self):
-        assert False
-        # return len(self.data)
-        # return len(self.data_source)
-
-
 def get_info_subject(subjects, config):
     nb_segment = len(np.hstack([range(int(s[1]), int(s[2])) for s in subjects]))
     batch_size = len(list(range(0, (config['seq_stride'] // config['network_stride']) * config['network_stride'], config['network_stride']))) * nb_segment
     return nb_segment, batch_size
 
 
-def get_dataloaders(config, dataset_path):
+def get_dataloaders(config:Config, dataset_path:str)->tuple[DataLoader, DataLoader, DataLoader]:
+    """
+    Returns the dataloaders for the train, validation and test sets.
+
+    Args:
+        config (Config): config dictionary.
+        dataset_path (str): path to the dataset folder.
+
+    Returns:
+        tuple[DataLoader, DataLoader, DataLoader]: train_dl, val_dl, test_dl dataloaders.
+    """
     subs_train, subs_val, subs_test = get_subject_list(dataset_path)
-    # # Use only one subject for each set
-    # subs_train = subs_train[:1]
-    # subs_val = subs_val[:1]
-    # subs_test = subs_test[:1]
     data = get_data(dataset_path)
 
     train_ds = FinetuneDataset(subs_train, config, data, config['full_transformer'], augmentation_config=None, device=config['device'])

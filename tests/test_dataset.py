@@ -4,7 +4,7 @@ import unittest
 import torch
 from torch.utils.data import DataLoader
 
-from transformiloop.src.data.temp import FinetuneDataset, get_subject_list, get_data
+from transformiloop.src.data.spindle_detection.datasets.datasets_util import FinetuneDataset, get_subject_list, get_data
 from transformiloop.src.utils.configs import initialize_config, validate_config
 
 MAX_ITER_TEST = 100
