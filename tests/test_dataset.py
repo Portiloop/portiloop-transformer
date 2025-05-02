@@ -18,7 +18,7 @@ class TestDataset(unittest.TestCase):
         
         # Get the subject list for each dataset and the data for all of them
         dataset_path = pathlib.Path(__file__).parents[1].resolve() / 'transformiloop' / 'dataset'
-        self.subs_train, self.subs_val, self.subs_test = get_subject_list(self.config, dataset_path)
+        self.subs_train, self.subs_val, self.subs_test = get_subject_list(dataset_path)
 
         # Use only one subject for each set
         self.subs_train = self.subs_train[:1]

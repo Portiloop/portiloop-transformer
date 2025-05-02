@@ -2,21 +2,29 @@ import logging
 import os
 import random
 import time
-from copy import deepcopy
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import torch
+from numpy import ndarray
 from sklearn.model_selection import train_test_split
 from torch.utils.data import Dataset, DataLoader, Sampler
 
 DATASET_FILE = 'dataset_classification_full_big_250_matlab_standardized_envelope_pf.txt'
 
-def get_subject_list(config, dataset_path):
+def get_subject_list(dataset_path:str)->tuple[ ndarray, ndarray, ndarray]:
+    """
+    Split the dataset into train, validation and test subject list.
+
+    Args:
+        dataset_path (str): path to the dataset folder.
+
+    Returns:
+        tuple[ ndarray, ndarray, ndarray ]: train_subject, validation_subject, test_subject lists.
+    """
     # Load all subject files
     all_subject = pd.read_csv(os.path.join(dataset_path, "subject_sequence_full_big.txt"), header=None, delim_whitespace=True).to_numpy()
-    test_subject = None
     p1_subject = pd.read_csv(os.path.join(dataset_path, 'subject_sequence_p1_big.txt'), header=None, delim_whitespace=True).to_numpy()
     p2_subject = pd.read_csv(os.path.join(dataset_path, 'subject_sequence_p2_big.txt'), header=None, delim_whitespace=True).to_numpy()
 
@@ -39,94 +47,22 @@ def get_subject_list(config, dataset_path):
     return train_subject, validation_subject, test_subject
 
 
-def get_data(dataset_path):
+def get_data(dataset_path:str)->ndarray:
+    """
+    Load the dataset from the dataset_path.
+
+    Args:
+        dataset_path (str): path to the dataset folder.
+
+    Returns:
+        ndarray: data array.
+    """
     start = time.time()
     data = pd.read_csv(os.path.join(dataset_path, DATASET_FILE), header=None).to_numpy()
     end = time.time()
     logging.info(f"Loaded data in {(end-start)} seconds...")
     return data
 
-class FinetuneDataset(Dataset):
-    def __init__(self, list_subject, config, data, history, augmentation_config=None, device=None, signal_modif=None):
-        self.fe = config['fe']
-        self.device = device
-        self.window_size = config['window_size']
-        self.augmentation_config = augmentation_config
-        self.data = data
-        assert list_subject is not None
-        used_sequence = np.hstack([range(int(s[1]), int(s[2])) for s in list_subject])
-        split_data = np.array(np.split(self.data, int(len(self.data) / (config['len_segment'] + 30 * self.fe))))  # 115+30 = nb seconds per sequence in the dataset
-        split_data = split_data[used_sequence]
-        self.data = np.transpose(split_data.reshape((split_data.shape[0] * split_data.shape[1], 4)))
-
-        assert self.window_size <= len(self.data[0]), "Dataset smaller than window size."
-        self.full_signal = torch.tensor(self.data[0], dtype=torch.float)
-        self.full_labels = torch.tensor(self.data[3], dtype=torch.float)
-        self.seq_len = 1 if config['full_transformer'] and not history else config['seq_len']  # want a single sample if full transformer and not training (aka validating), else we use seq len
-        self.seq_stride = config['seq_stride']
-        self.past_signal_len = self.seq_len * self.seq_stride
-        self.threshold = config['data_threshold']
-        self.label_history = history
-
-        # Check if we are pretrining the model
-        self.pretraining = config['pretraining']
-        self.modif_ratio = config['modif_ratio']
-        self.signal_modif = signal_modif
-
-        # list of indices that can be sampled:
-        self.indices = [idx for idx in range(len(self.data[0])-self.window_size) # all possible idxs in the dataset
-                        if not (self.data[3][idx+self.window_size-1]<0 # that are not ending in an unlabeled zone
-                        or idx < self.past_signal_len # and far enough from the beginning to build a sequence up to here
-                        or (self.label_history and self.data[3][idx - (self.past_signal_len - self.seq_stride) + self.window_size - 1] < 0)) # and not beginning in an unlabeled zone
-                        ]
-
-        total_spindles = np.sum(self.data[3] > self.threshold)
-        print(f"total number of spindles in this dataset : {total_spindles}")
-
-    def __len__(self):
-        return len(self.indices)
-
-    def __getitem__(self, idx):
-        assert 0 <= idx < len(self), f"Index out of range ({idx}/{len(self)})."
-        idx = self.indices[idx]
-        assert self.data[3][idx + self.window_size - 1] >= 0, f"Bad index: {idx}."
-
-        # Get data 
-        x_data = self.full_signal[idx - (self.past_signal_len - self.seq_stride):idx + self.window_size].unfold(0, self.window_size, self.seq_stride)
-
-        if self.pretraining:
-            if random.uniform(0, 1) < self.modif_ratio:
-                x_data = self.signal_modif(x_data) if self.signal_modif is not None else self.default_modif(x_data)
-                label = torch.tensor(1, dtype=torch.float)
-            else:
-                label = torch.tensor(0, dtype=torch.float)
-        else:
-            # Get label for the spindle recognition task
-            label_unique = torch.tensor(self.data[3][idx + self.window_size - 1], dtype=torch.float)
-            if self.label_history:
-                # Get the label history if we want to learn from that as well.
-                label_history = self.full_labels[idx - (self.past_signal_len - self.seq_stride) + self.window_size - 1:idx + self.window_size].unfold(0, 1, self.seq_stride)
-                assert len(label_history) == len(x_data), f"len(label):{len(label_history)} != len(x_data):{len(x_data)}"
-                assert -1 not in label_history, f"invalid label: {label_history}"
-                assert label_unique == label_history[-1], f"bad label: {label_unique} != {label_history[-1]}"
-            label = label_history if self.label_history else label_unique
-
-        assert label in [0, 1], f"Invalid label: {label}"
-        label = label.type(torch.LongTensor)
-        return x_data, label
-        
-
-    def is_spindle(self, idx):
-        assert 0 <= idx <= len(self), f"Index out of range ({idx}/{len(self)})."
-        idx = self.indices[idx]
-        return True if (self.data[3][idx + self.window_size - 1] > self.threshold) else False
-    
-    def default_modif(self, signal):
-        # Get one random sequence
-        modified_index = random.randint(0, signal.size(0)-1)
-        new_sig = deepcopy(signal)
-        new_sig[modified_index] = -signal[modified_index]
-        return new_sig
 
 def get_class_idxs(dataset, distribution_mode):
     """
@@ -297,7 +233,7 @@ def get_info_subject(subjects, config):
 
 
 def get_dataloaders(config, dataset_path):
-    subs_train, subs_val, subs_test = get_subject_list(config, dataset_path)
+    subs_train, subs_val, subs_test = get_subject_list(dataset_path)
     # # Use only one subject for each set
     # subs_train = subs_train[:1]
     # subs_val = subs_val[:1]

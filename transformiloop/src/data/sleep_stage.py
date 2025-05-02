@@ -10,6 +10,10 @@ from wandb.sdk import Config
 
 from transformiloop.src.data.pretraining import read_pretraining_dataset
 
+"""
+This module contains classes and functions related to sleep stage prediction.
+"""
+
 def divide_subjects_into_sets(labels:dict[str, list[str]])->tuple[list[str], list[str]]:
     """
     Divide the subjects into train and test sets.
