@@ -1,4 +1,5 @@
 import pathlib
+import traceback
 import unittest
 
 import torch
@@ -19,13 +20,17 @@ class TestPretrainingDataset(unittest.TestCase):
                 "Error when initializing test config, check your config")
 
         # Get the subject list for each dataset and the data for all of them
-        self.dataset_path = pathlib.Path(__file__).parents[1].resolve(
-        ) / 'transformiloop' / 'dataset' / 'MASS_preds'
+        self.dataset_path = str(pathlib.Path(__file__).parents[1].resolve(
+        ) / 'transformiloop' / 'dataset' / 'MASS_preds')
 
     # Test pretraining dataset
     def test_pretraining_dataset(self):
-
-        pre_dataset = PretrainingDataset(self.dataset_path, self.config)
+        try:
+            pre_dataset = PretrainingDataset(self.dataset_path, self.config)
+        except FileNotFoundError as e:
+            print("FileNotFoundError:", e)
+            traceback.print_exc()
+            raise
         print(len(pre_dataset))
         print("Done loading dataset")
         sampler = RandomSampler(data_source=pre_dataset, replacement=True)
@@ -37,8 +42,6 @@ class TestPretrainingDataset(unittest.TestCase):
             drop_last=True
         )
         print("Done building dataloader")
-        # for index, batch in enumerate(sampler):
-        #     break
         counter = torch.zeros(4)
         for index, batch in enumerate(pre_dl):
             signal, gender, age, mask, reps = batch
@@ -46,7 +49,7 @@ class TestPretrainingDataset(unittest.TestCase):
             if index == 0:
                 self.assertEqual(signal.shape, torch.Size([self.config['batch_size'], self.config['seq_len'], self.config['window_size']]))       
                 self.assertTrue(gender[0] == 0 or gender[0] == 1)
-                self.assertTrue(age[0] >= 18 and age[0] <= 76) 
+                self.assertTrue(18 <= age[0] <= 76)
                 self.assertEqual(mask.shape, torch.Size([self.config['batch_size'], self.config['seq_len']]))
             elif index > 6:
                 break

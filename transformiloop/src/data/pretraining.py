@@ -1,6 +1,7 @@
 import csv
 import logging
 import os
+import traceback
 
 import pyedflib
 import torch
@@ -56,7 +57,12 @@ def read_pretraining_dataset(dataset_path:str, patients_to_keep:list[str]=None)-
     for patient_id in patients_info.keys():
         if patients_to_keep is not None and patient_id not in patients_to_keep:
             continue
-        filename = os.path.join(dataset_path, patient_id + ".edf")
+        try:
+            filename = os.path.join(dataset_path, patient_id + ".edf")
+        except FileNotFoundError as e:
+            print("FileNotFoundError:", e)
+            traceback.print_exc()
+            raise
         try:
             with pyedflib.EdfReader(filename) as edf_file:
                 patients_info[patient_id]['signal'] = edf_file.readSignal(0)
