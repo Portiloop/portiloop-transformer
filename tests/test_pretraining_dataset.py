@@ -51,7 +51,7 @@ class TestPretrainingDataset(unittest.TestCase):
                 self.assertTrue(gender[0] == 0 or gender[0] == 1)
                 self.assertTrue(18 <= age[0] <= 76)
                 self.assertEqual(mask.shape, torch.Size([self.config['batch_size'], self.config['seq_len']]))
-            elif index > 6:
+            elif index > MAX_ITER_TEST:
                 break
             else:
                 elems = []

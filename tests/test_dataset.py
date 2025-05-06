@@ -5,6 +5,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from transformiloop.src.data.spindle_detection.datasets.datasets_util import FinetuneDataset, get_subject_list, get_data
+from transformiloop.src.data.spindle_detection.datasets.finetune_dataset import default_modif
 from transformiloop.src.utils.configs import initialize_config, validate_config
 
 MAX_ITER_TEST = 100
@@ -17,7 +18,7 @@ class TestDataset(unittest.TestCase):
             raise AttributeError("Error when initializing test config, check your config")
         
         # Get the subject list for each dataset and the data for all of them
-        dataset_path = pathlib.Path(__file__).parents[1].resolve() / 'transformiloop' / 'dataset'
+        dataset_path = str(pathlib.Path(__file__).parents[1].resolve() / 'transformiloop' / 'dataset')
         self.subs_train, self.subs_val, self.subs_test = get_subject_list(dataset_path)
 
         # Use only one subject for each set

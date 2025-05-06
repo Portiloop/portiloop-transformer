@@ -172,7 +172,7 @@ class FinetuneDataset(AbstractSpindleDataset):
                 label = label_history
 
         assert label in [0, 1], f"Invalid label: {label}"
-        label = label.type(torch.Long)
+        label = label.type(torch.long)
         return x_data, label
 
 
