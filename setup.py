@@ -7,7 +7,7 @@ setup(name='transformiloop',
       author='Milo Sobral',
       author_email='milosobral@gmail.com',
       url='https://github.com/milo-sobral/portiloop_transformer',
-      packages=find_packages(include=['transformiloop']),
+      packages=find_packages(include=['transformiloop', 'transformiloop.*']),
       install_requires=[
         'numpy',
         'matplotlib',
