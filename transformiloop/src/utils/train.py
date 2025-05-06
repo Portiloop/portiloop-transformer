@@ -4,7 +4,6 @@ import logging
 import os
 import pprint
 import time
-from re import L
 import pathlib
 from torch.utils.data import DataLoader
 
@@ -17,10 +16,10 @@ from torch.nn import BCEWithLogitsLoss
 from torchinfo import summary
 from transformiloop.src.data.pretraining import PretrainingDataset
 from transformiloop.src.data.sleep_stage import get_dataloaders_sleep_stage
-from transformiloop.src.data.spindle_detection import get_dataloaders
+from transformiloop.src.data.spindle_detection.datasets.datasets_util import get_dataloaders
 from transformiloop.src.data.spindle_trains import get_dataloaders_spindle_trains
 from transformiloop.src.models.lstm import PortiloopNetwork, get_final_model_config_dict
-from transformiloop.src.models.transformers import TransformiloopFinetune, TransformiloopPretrain, GRUClassifier
+from transformiloop.src.models.transformers import TransformiloopFinetune, TransformiloopPretrain
 from transformiloop.src.utils.configs import fill_config, initialize_config, validate_config
 
 from transformiloop.src.utils.train_utils import (WandBLogger, finetune_epoch,

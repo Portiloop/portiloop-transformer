@@ -1,17 +1,16 @@
-from copy import deepcopy
 import json
 import os
 import pathlib
 import random
 import time
+
 import numpy as np
 import pandas as pd
-import pyedflib
-import csv
-from torch.utils.data import Dataset, DataLoader, Sampler
 import torch
+from torch.utils.data import Dataset, DataLoader, Sampler
+
 from transformiloop.src.data.pretraining import read_pretraining_dataset
-from torch.utils.data.sampler import WeightedRandomSampler
+from transformiloop.src.data.sleep_stage import divide_subjects_into_sets
 
 
 def generate_spindle_trains_dataset(raw_dataset_path, output_file, electrode='Cz'):
@@ -94,13 +93,9 @@ def get_dataloaders_spindle_trains(MASS_dir, ds_dir, config):
     - Create the train and test datasets and dataloaders
     """
     # Read all the subjects available in the dataset
-    labels = read_spindle_trains_labels(ds_dir) 
+    labels = read_spindle_trains_labels(ds_dir)
 
-    # Divide the subjects into train and test sets
-    subjects = list(labels.keys())
-    random.shuffle(subjects)
-    train_subjects = subjects[:int(len(subjects) * 0.8)]
-    test_subjects = subjects[int(len(subjects) * 0.8):]
+    train_subjects, test_subjects = divide_subjects_into_sets(labels)
 
     # Read the pretraining dataset
     data = read_pretraining_dataset(MASS_dir)

@@ -4,11 +4,7 @@ from transformiloop.src.data.spindle_trains import get_dataloaders_spindle_train
 from transformiloop.src.models.transformers import TransformiloopFinetune
 from transformiloop.src.utils.configs import initialize_config
 from transformiloop.src.models.model_blocks import GRUClassifier
-import torch.nn as nn
-from torchinfo import summary
-import torch
 from transformiloop.src.utils.train_utils import finetune_epoch, finetune_test_epoch_lstm
-from transformiloop.src.data.spindle_detection import get_dataloaders
 
 import torch.optim as optim
 

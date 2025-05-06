@@ -1,12 +1,8 @@
 import pathlib
-from sys import float_info
-from tests.test_pretraining_dataset import MAX_ITER_TEST
 from transformiloop.src.data.pretraining import read_pretraining_dataset
 from transformiloop.src.data.spindle_trains import SpindleTrainDataset, EquiRandomSampler, read_spindle_trains_labels
 from transformiloop.src.utils.configs import initialize_config, validate_config
-import numpy as np
 import unittest
-import torch
 from torch.utils.data import DataLoader
 
 

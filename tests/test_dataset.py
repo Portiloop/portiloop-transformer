@@ -1,11 +1,11 @@
 import pathlib
-from sys import float_info
-from transformiloop.src.data.spindle_detection import FinetuneDataset, RandomSampler, get_class_idxs, get_info_subject, get_subject_list, get_data
-from transformiloop.src.utils.configs import initialize_config, validate_config
 import unittest
+
 import torch
 from torch.utils.data import DataLoader
 
+from transformiloop.src.data.spindle_detection.datasets.datasets_util import FinetuneDataset, get_subject_list, get_data
+from transformiloop.src.utils.configs import initialize_config, validate_config
 
 MAX_ITER_TEST = 100
 
@@ -18,7 +18,7 @@ class TestDataset(unittest.TestCase):
         
         # Get the subject list for each dataset and the data for all of them
         dataset_path = pathlib.Path(__file__).parents[1].resolve() / 'transformiloop' / 'dataset'
-        self.subs_train, self.subs_val, self.subs_test = get_subject_list(self.config, dataset_path)
+        self.subs_train, self.subs_val, self.subs_test = get_subject_list(dataset_path)
 
         # Use only one subject for each set
         self.subs_train = self.subs_train[:1]
@@ -65,7 +65,7 @@ class TestDataset(unittest.TestCase):
         # Check that default modification works as intended
         # Gets the first index where the label is zero (no modifications have been made)
         index = (first_label_train == 0).nonzero()[0]
-        modified = train_ds.default_modif(first_element_train[index])
+        modified = default_modif(first_element_train[index])
 
         # Check that the proportion of modified is roughly what we want
         ones, total = 0, 0
