@@ -149,10 +149,8 @@ class SleepStageDataset(Dataset):
             signal = torch.tensor(
                 data[subject]['signal'], dtype=torch.float)
             # Get all the labels for the given subject
-            label = []
-            for lab in labels[subject]:
-                label += [SleepStageDataset.get_labels().index(lab)] * self.config['fe']
-            
+
+            label = [SleepStageDataset.get_labels().index(lab) for lab in labels[subject]] * self.config['fe']
             # Add some '?' padding at the end to make sure the length of signal and label match
             label += [SleepStageDataset.get_labels().index('?')] * (len(signal) - len(label))
 

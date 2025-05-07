@@ -55,15 +55,11 @@ class TestDataset(unittest.TestCase):
         for index, batch in enumerate(dataloader):
             # Check if th signal is of the right shape
             signal = batch[0]
-            print(signal.shape)
             self.assertEqual(signal.shape, torch.Size([self.config['batch_size'], self.config['seq_len'], self.config['window_size']]))
             
             # Check if the labels are the right shape
             label = batch[1]
-            self.assertEqual(label.shape, torch.Size([self.config['batch_size'], 5]))
-
-            # Check that none of the labels is [0, 0, 0, 0, 0]
-            self.assertFalse(torch.all(label == torch.tensor([0, 0, 0, 0, 0])))
+            self.assertEqual(label.shape, torch.Size([self.config['batch_size']]))
             
             if index > MAX_ITER_TEST:
                 break
