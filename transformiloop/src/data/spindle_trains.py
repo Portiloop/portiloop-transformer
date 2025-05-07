@@ -8,13 +8,20 @@ import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import Dataset, DataLoader, Sampler
+from wandb.sdk import Config
 
 from transformiloop.src.data.pretraining import read_pretraining_dataset
 from transformiloop.src.data.sleep_stage import divide_subjects_into_sets
 
 
-def generate_spindle_trains_dataset(raw_dataset_path, output_file, electrode='Cz'):
-    "Constructs a dataset of spindle trains from the MASS dataset"
+def generate_spindle_trains_dataset(raw_dataset_path:str, output_file:str, electrode:str='Cz'):
+    """
+    Constructs a dataset of spindle trains from the MASS dataset
+    Args:
+        raw_dataset_path (str): The path to the raw dataset directory.
+        output_file (str): The path to the output file.
+        electrode (str): The electrode to use. Defaults to 'Cz'.
+    """
     data = {}
 
     spindle_infos = os.listdir(os.path.join(raw_dataset_path, "spindle_info"))
@@ -26,21 +33,27 @@ def generate_spindle_trains_dataset(raw_dataset_path, output_file, electrode='Cz
         spindle_info_file = [f for f in spindle_infos if subset in f and electrode in f][0]
 
         # Read the spindle info file
-        train_ds_ss = read_spindle_train_info(\
-            os.path.join(raw_dataset_path, "subject_info", subject_dir), \
-                os.path.join(raw_dataset_path, "spindle_info", spindle_info_file))
+        train_ds_ss = read_spindle_train_info(
+            os.path.join(raw_dataset_path, "subject_info", subject_dir),
+            os.path.join(raw_dataset_path, "spindle_info", spindle_info_file))
         
         # Append the data
         data.update(train_ds_ss)
 
-    # Write the data to a json file
+    # Write the data to a JSON file
     with open(output_file, 'w') as f:
         json.dump(data, f)
 
 
-def read_spindle_train_info(subject_dir, spindle_info_file):
+def read_spindle_train_info(subject_dir:str, spindle_info_file:str)->dict[str, dict[str, list[int]]]:
     """
     Read the spindle train info from the given subject directory and spindle info file
+    Args:
+        subject_dir (str): The path to the subject directory.
+        spindle_info_file (str): The path to the spindle info file.
+
+    Returns:
+        data (dict[str, dict[str, list[int]]]): A dictionary containing the spindle train info for each subject.
     """
     subject_names = pd.read_csv(subject_dir, header=None).to_numpy()[:, 0]
     spindle_info = pd.read_csv(spindle_info_file)
@@ -86,11 +99,18 @@ def read_spindle_train_info(subject_dir, spindle_info_file):
 
     return data
 
-def get_dataloaders_spindle_trains(MASS_dir, ds_dir, config):
+def get_dataloaders_spindle_trains(MASS_dir:str, ds_dir:str, config:Config)->tuple[DataLoader, DataLoader]:
     """
     Get the dataloaders for the MASS dataset
     - Start by dividing the available subjects into train and test sets
     - Create the train and test datasets and dataloaders
+    Args:
+        MASS_dir (str): The path to the MASS directory.
+        ds_dir (str): The path to the dataset directory.
+        config (Config): The configuration object.
+
+    Returns:
+        tuple[DataLoader, DataLoader]: A tuple containing two dataloaders: the first one for the train set, and the second one for the test set.
     """
     # Read all the subjects available in the dataset
     labels = read_spindle_trains_labels(ds_dir)
@@ -123,56 +143,6 @@ def get_dataloaders_spindle_trains(MASS_dir, ds_dir, config):
     return train_dataloader, test_dataloader
 
 
-class EquiRandomSampler(Sampler):
-    def __init__(self, dataset, sample_list=[0, 1, 2, 3]):
-        """ 
-        ratio: list of ratios for each class [non-spindle, isolated, first, train]
-        """
-        self.sample_list = sample_list
-        self.dataset = dataset
-
-        self.isolated_index = 0
-        self.first_index = 0
-        self.train_index = 0
-
-        # Come up with a good maximum number of samples to take from the dataset
-        self.max_isolated_index = len(dataset.spindle_labels_iso)
-        self.max_first_index = len(dataset.spindle_labels_first)
-        self.max_train_index = len(dataset.spindle_labels_train)
-
-    def __iter__(self):
-        while True:
-            # Select a random class
-            class_choice = np.random.choice(self.sample_list)
-            if class_choice == 0:
-                # Sample from the rest of the signal
-                yield random.randint(0, len(self.dataset.full_signal) - self.dataset.min_signal_len - self.dataset.window_size)
-            elif class_choice == 1:
-                index = self.dataset.spindle_labels_iso[self.isolated_index]
-                self.isolated_index += 1
-                if self.isolated_index >= self.max_isolated_index:
-                    self.isolated_index = 0
-                assert index in self.dataset.spindle_labels_iso, "Spindle index not found in list"
-                yield index - self.dataset.past_signal_len - self.dataset.window_size + 1
-            elif class_choice == 2:
-                index = self.dataset.spindle_labels_first[self.first_index]
-                self.first_index += 1
-                if self.first_index >= self.max_first_index:
-                    self.first_index = 0
-                assert index in self.dataset.spindle_labels_first, "Spindle index not found in list"
-                yield index - self.dataset.past_signal_len - self.dataset.window_size + 1
-            elif class_choice == 3:
-                index = self.dataset.spindle_labels_train[self.train_index]
-                self.train_index += 1
-                if self.train_index >= self.max_train_index:
-                    self.train_index = 0
-                assert index in self.dataset.spindle_labels_train, "Spindle index not found in list"
-                yield index - self.dataset.past_signal_len - self.dataset.window_size + 1
-            
-    def __len__(self):
-        return len(self.dataset.full_signal)
-
-
 def read_spindle_trains_labels(ds_dir):
     '''
     Read the sleep_staging.csv file in the given directory and stores info in a dictionary
@@ -187,7 +157,7 @@ def read_spindle_trains_labels(ds_dir):
 class SpindleTrainDataset(Dataset):
     def __init__(self, subjects, data, labels, config):
         '''
-        This class takes in a list of subject, a path to the MASS directory 
+        This class takes in a list of subjects, a path to the MASS directory
         and reads the files associated with the given subjects as well as the sleep stage annotations
         '''
         super().__init__()

@@ -16,7 +16,7 @@ class TestDataset(unittest.TestCase):
         self.subject_list = ['01-01-0004']
         self.MASS_dir = pathlib.Path(__file__).parents[1].resolve() / 'transformiloop' / 'dataset'
         self.sleep_stages = read_spindle_trains_labels(self.MASS_dir)
-        self.data = read_pretraining_dataset(self.MASS_dir / 'MASS_preds', patients_to_keep=self.subject_list)
+        self.data = read_pretraining_dataset(str(self.MASS_dir / 'MASS_preds'), patients_to_keep=self.subject_list)
 
     def test_reader_sleep_staging_labels(self):
         labels = read_spindle_trains_labels(self.MASS_dir)
@@ -25,7 +25,6 @@ class TestDataset(unittest.TestCase):
     # Test pretraining dataset
     def test_sleep_Staging_dataset(self):
         dataset = SpindleTrainDataset(self.subject_list, self.data, self.sleep_stages, self.config)
-        # self.assertEqual(len(dataset), len(dataset.full_labels))
 
         dataloader = DataLoader(
             dataset, 

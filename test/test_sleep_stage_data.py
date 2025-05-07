@@ -1,5 +1,5 @@
 import pathlib
-from tests.test_pretraining_dataset import MAX_ITER_TEST
+from test.test_pretraining_dataset import MAX_ITER_TEST
 from transformiloop.src.data.pretraining import read_pretraining_dataset
 from transformiloop.src.data.sleep_stage import SleepStageDataset, SleepStageSampler, read_sleep_staging_labels
 from transformiloop.src.utils.configs import initialize_config, validate_config
