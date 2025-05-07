@@ -2,18 +2,19 @@ import argparse
 import copy
 import logging
 import os
+import pathlib
 import pprint
 import time
-import pathlib
-from torch.utils.data import DataLoader
 
 import torch
-from torch.utils.data.sampler import RandomSampler
-
 import torch.optim as optim
 import wandb
 from torch.nn import BCEWithLogitsLoss
+from torch.utils.data import DataLoader
+from torch.utils.data.sampler import RandomSampler
 from torchinfo import summary
+from wandb.sdk.wandb_run import Run
+
 from transformiloop.src.data.pretraining import PretrainingDataset
 from transformiloop.src.data.sleep_stage import get_dataloaders_sleep_stage
 from transformiloop.src.data.spindle_detection.datasets.datasets_util import get_dataloaders
@@ -21,39 +22,68 @@ from transformiloop.src.data.spindle_trains import get_dataloaders_spindle_train
 from transformiloop.src.models.lstm import PortiloopNetwork, get_final_model_config_dict
 from transformiloop.src.models.transformers import TransformiloopFinetune, TransformiloopPretrain
 from transformiloop.src.utils.configs import fill_config, initialize_config, validate_config
-
 from transformiloop.src.utils.train_utils import (WandBLogger, finetune_epoch,
                                                   finetune_test_epoch,
                                                   WarmupTransformerLR, finetune_test_epoch_lstm, pretrain_epoch)
 
 
-def pretrain(wandb_group, wandb_project, wandb_exp_id, log_wandb=True, restore=False):
+def init_wandb_logging(wandb_group:str|None, wandb_project:str|None, wandb_exp_id:str|None, restore:bool=False)-> tuple[
+    dict, dict, Run]:
+    """
+    initializes and executes the pretraining process for a specified model and dataset.
+    Args:
+        wandb_group (str|None): The group name for the WandB run.
+        wandb_project (str|None): The project name for the WandB run.
+        wandb_exp_id (str|None): The experiment ID for the WandB run.
+        restore (bool, optional): Whether to restore the model from a previous run. Defaults to False.
+    Returns:
+        tuple[dict, dict, Run]: A tuple containing the model weights dictionary, the config, and the WandB run object.
+    """
+    os.environ['WANDB_API_KEY'] = "cd105554ccdfeee0bbe69c175ba0c14ed41f6e00"  # TODO insert my own key
+    wandb_run = wandb.init(
+        project=wandb_project,
+        group=wandb_group,
+        id=wandb_exp_id,
+        resume='allow',
+        reinit=True,
+        save_code=True)
+
+    # Load the config
+    dict = None
+    if restore:
+        config = wandb_run.config
+        model_weights_filename = \
+            f"model_{wandb_run.summary['batch'] // config['save_every'] * config['save_every']}.ckpt"
+        dict = torch.load(wandb_run.restore(model_weights_filename, run_path=wandb_run.path).name)
+
+        logging.debug(f"Restoring model from {model_weights_filename}")
+    else:
+        config = initialize_config('test')
+        if not validate_config(config):
+            raise AttributeError("Issue with config.")
+        wandb_run.config.update(config)
+    return dict, config, wandb_run
+
+def pretrain(wandb_group:str|None, wandb_project:str|None, wandb_exp_id:str|None, log_wandb:bool=True, restore:bool=False):
+    """
+    Initializes and executes the pretraining process for a specified model and dataset. The method supports
+    logging and checkpoint restoration via the WandB tool, along with configuration validation and
+    initialization of optimizer, scheduler, dataloader, and model.
+
+    Args:
+        wandb_group (str|None): The group name for the WandB run.
+        wandb_project (str|None): The project name for the WandB run.
+        wandb_exp_id (str|None): The experiment ID for the WandB run.
+        log_wandb (bool, optional): Whether to log the run using WandB. Defaults to True.
+        restore (bool, optional): Whether to restore the model from a previous run. Defaults to False.
+    """
 
     # Initialize the config depending on the case
+    if restore:
+        log_wandb = True
+    restore_dict = None
     if log_wandb:
-        # Initialize WandB logging
-        os.environ['WANDB_API_KEY'] = "cd105554ccdfeee0bbe69c175ba0c14ed41f6e00"  # TODO insert my own key
-        wandb_run = wandb.init(
-            project=wandb_project,
-            group=wandb_group,
-            id=wandb_exp_id,
-            resume='allow',
-            reinit=True,
-            save_code=True)
-
-        # Load the config
-        if restore:
-            config = wandb_run.config
-            model_weights_filename = \
-                f"model_{wandb_run.summary['batch'] // config['save_every'] * config['save_every']}.ckpt"
-            restore_dict = torch.load(wandb_run.restore(model_weights_filename, run_path=wandb_run.path).name)
-
-            logging.debug(f"Restoring model from {model_weights_filename}")
-        else:
-            config = initialize_config('test')
-            if not validate_config(config):
-                raise AttributeError("Issue with config.")
-            wandb_run.config.update(config)
+        restore_dict, config, wandb_run = init_wandb_logging(wandb_group,wandb_project,wandb_exp_id,restore)
     else:
         # Load the config
         config = initialize_config('test')
@@ -77,7 +107,7 @@ def pretrain(wandb_group, wandb_project, wandb_exp_id, log_wandb=True, restore=F
     logging.debug("Initializing dataset...")
 
     # Initialize the pretraining dataloader
-    pre_dataset = PretrainingDataset(dataset_path, config)
+    pre_dataset = PretrainingDataset(str(dataset_path), config)
     sampler = RandomSampler(data_source=pre_dataset, replacement=True)
     pretrain_dl = DataLoader(
         pre_dataset, 
@@ -91,7 +121,7 @@ def pretrain(wandb_group, wandb_project, wandb_exp_id, log_wandb=True, restore=F
 
     # Initialize the model
     model = TransformiloopPretrain(config)
-    if restore:
+    if restore and restore_dict is not None:
         model_state_dict = restore_dict['model']
         model_state_dict = {k: v for k, v in model_state_dict.items() if "transformer.positional_encoder.pos_encoder.pe" != k}
         # Get the latest model weights filename, the highest multiple of save_every which is less than the last batch
@@ -185,28 +215,7 @@ def finetune(wandb_group, wandb_project, wandb_exp_id, log_wandb=True, restore=F
         # Initialize the config depending on the case
         if log_wandb:
             # Initialize WandB logging
-            os.environ['WANDB_API_KEY'] = "cd105554ccdfeee0bbe69c175ba0c14ed41f6e00"  # TODO insert my own key
-            wandb_run = wandb.init(
-                project=wandb_project,
-                group=wandb_group,
-                id=wandb_exp_id,
-                resume='allow',
-                reinit=True,
-                save_code=True)
-
-            # Load the config
-            if restore:
-                config = wandb_run.config
-                model_weights_filename = \
-                    f"model_{wandb_run.summary['batch'] // config['save_every'] * config['save_every']}.ckpt"
-                model_dict = torch.load(wandb_run.restore(model_weights_filename, run_path=wandb_run.path).name)
-
-                logging.debug(f"Restoring model from {model_weights_filename}")
-            else:
-                config = initialize_config('test')
-                if not validate_config(config):
-                    raise AttributeError("Issue with config.")
-                wandb_run.config.update(config)
+            model_dict = init_wandb_logging(wandb_group,wandb_project,wandb_exp_id,restore)
         else:
             # Load the config
             config = initialize_config('test')
