@@ -4,14 +4,16 @@ import pathlib
 import random
 import time
 
-import numpy as np
 import pandas as pd
 import torch
-from torch.utils.data import Dataset, DataLoader, Sampler
+from numpy import ndarray
+from torch import Tensor
+from torch.utils.data import Dataset, DataLoader
 from wandb.sdk import Config
 
 from transformiloop.src.data.pretraining import read_pretraining_dataset
 from transformiloop.src.data.sleep_stage import divide_subjects_into_sets
+from transformiloop.src.data.spindle_detection.samplers.equirandom_sampler import EquiRandomSampler
 
 
 def generate_spindle_trains_dataset(raw_dataset_path:str, output_file:str, electrode:str='Cz'):
@@ -75,8 +77,14 @@ def read_spindle_train_info(subject_dir:str, spindle_info_file:str)->dict[str, d
         f"The number of subjects in the subject_info file and the spindle_info file should be the same, \
             found {len(subject_names)} and {subject_counter} respectively"
 
-    def convert_row_to_250hz(row):
-        "Convert the row to 250hz"
+    def convert_row_to_250hz(row:pd.Series)->pd.Series | None:
+        """
+        Convert the row to 250 Hz
+        Args:
+            row (pd.Series): The row to convert.
+        Returns:
+            pd.Series | None: The converted row or None if the row is invalid.
+        """
         row['onsets'] = int((row['onsets'] / 256) * 250)
         row['offsets'] = int((row['offsets'] / 256) * 250)
         if row['onsets'] == row['offsets']:
@@ -143,23 +151,62 @@ def get_dataloaders_spindle_trains(MASS_dir:str, ds_dir:str, config:Config)->tup
     return train_dataloader, test_dataloader
 
 
-def read_spindle_trains_labels(ds_dir):
-    '''
+def read_spindle_trains_labels(ds_dir:str)->dict[str, dict[str, list[int|str]]]:
+    """
     Read the sleep_staging.csv file in the given directory and stores info in a dictionary
-    '''
+    Args:
+        ds_dir (str): The path to the dataset directory.
+
+    Returns:
+        dict[str, dict[str, list[int]]]: A dictionary with the subjects id as keys and a dictionary with the onsets, offsets and labels as values.
+    """
     spindle_trains_file = os.path.join(ds_dir, 'spindle_trains_annots.json')
-    # Read the json file
+    # Read the JSON file
     with open(spindle_trains_file, 'r') as f:
         labels = json.load(f)
     return labels
 
 
 class SpindleTrainDataset(Dataset):
-    def __init__(self, subjects, data, labels, config):
-        '''
+    """
+    Represents a PyTorch Dataset for spindle train data.
+
+    :ivar config: Configuration dictionary containing key details such as ``window_size``,
+        ``seq_len``, and ``seq_stride`` that determine signal processing and windowing behavior.
+    :type config: Config
+    :ivar window_size: Size of the sliding window used for segmenting signals into smaller chunks.
+    :type window_size: int
+    :ivar seq_len: Length of the sequence, representing how many windows are concatenated.
+    :type seq_len: int
+    :ivar seq_stride: Stride value determining the overlap between consecutive sequence windows.
+    :type seq_stride: int
+    :ivar past_signal_len: The length of past signal required before the last window in a sequence.
+    :type past_signal_len: int
+    :ivar min_signal_len: The minimum signal length required to process any sequence, based
+        on the ``past_signal_len`` and ``window_size``.
+    :type min_signal_len: int
+    :ivar full_signal: Concatenated tensor of all signals from every subject, prepared for processing.
+    :type full_signal: torch.Tensor
+    :ivar full_labels: Concatenated tensor of all labels corresponding to the signals, with indices
+        indicating where specific labels appear.
+    :type full_labels: torch.Tensor
+    :ivar spindle_labels_iso: List of indices for spindle labels categorized as "isolated."
+    :type spindle_labels_iso: list[int]
+    :ivar spindle_labels_first: List of indices for spindle labels categorized as "first."
+    :type spindle_labels_first: list[int]
+    :ivar spindle_labels_train: List of indices for spindle labels categorized as "train."
+    :type spindle_labels_train: list[int]
+    """
+    def __init__(self, subjects:list[str], data: dict[str, dict[str, int | str | ndarray | Tensor]], labels: dict[str, dict[str, list[int | str]]], config:Config):
+        """
         This class takes in a list of subjects, a path to the MASS directory
         and reads the files associated with the given subjects as well as the sleep stage annotations
-        '''
+        Args:
+            subjects (list[str]): A list of subjects to be used for training.
+            data (dict[str, dict[str, int | str | ndarray | Tensor]]): A dictionary containing the pretraining dataset.
+            labels (dict[str, dict[str, list[int]]]): A dictionary containing the sleep stage annotations.
+            config (Config): A configuration object containing details such as window size, sequence length, and stride.
+        """
         super().__init__()
 
         self.config = config
@@ -172,8 +219,8 @@ class SpindleTrainDataset(Dataset):
         self.min_signal_len = self.past_signal_len + self.window_size
 
         # Get the sleep stage labels
-        self.full_signal = []
-        self.full_labels = []
+        full_signal = []
+        full_labels = []
         self.spindle_labels_iso = []
         self.spindle_labels_first = []
         self.spindle_labels_train = []
@@ -216,13 +263,13 @@ class SpindleTrainDataset(Dataset):
             assert len(signal) == len(label)
 
             # Add to full signal and full label
-            self.full_labels.append(label)
-            self.full_signal.append(signal)
+            full_labels.append(label)
+            full_signal.append(signal)
             del data[subject], signal, label
         
         # Concatenate the full signal and the full labels into one continuous tensor
-        self.full_signal = torch.cat(self.full_signal)
-        self.full_labels = torch.cat(self.full_labels)
+        self.full_signal = torch.cat(full_signal)
+        self.full_labels = torch.cat(full_labels)
 
         # Shuffle the spindle labels
         start = time.time()
@@ -235,10 +282,22 @@ class SpindleTrainDataset(Dataset):
 
 
     @staticmethod
-    def get_labels():
+    def get_labels()->list[str]:
+        """
+        Get the labels for the spindle train dataset.
+        Returns:
+            list[str]: A list of labels for the spindle train dataset.
+        """
         return ['non-spindle', 'isolated', 'first', 'train']
 
-    def __getitem__(self, index):
+    def __getitem__(self, index:int)->tuple[Tensor, Tensor] | tuple[Tensor, Tensor, Tensor]:
+        """
+        Returns a tuple containing the signal and the label for the given index.
+        Args:
+            index (int): The index of the signal and label to return.
+        Returns:
+            tuple[Tensor, Tensor] | tuple[Tensor, Tensor, Tensor]: A tuple containing the signal and the label for the given index.
+        """
 
         # Get data
         index = index + self.past_signal_len
@@ -248,17 +307,22 @@ class SpindleTrainDataset(Dataset):
 
         # Make sure that the last index of the signal is the same as the label
         # assert signal[-1, -1] == self.full_signal[index + self.window_size - 1], "Issue with the data and the labels"
-        label = label.type(torch.LongTensor)
+        label = label.type(torch.long)
 
         assert label in [1, 2], f"Label {label} is not 1 or 2"
 
         return signal, label-1
 
-    def __len__(self):
+    def __len__(self)->int:
+        """
+        Returns the length of the dataset.
+        Returns:
+            int: The length of the dataset.
+        """
         return len(self.full_signal) - self.window_size
 
 
 if __name__ == "__main__":
     # Get the path to the dataset directory
     dataset_path = pathlib.Path(__file__).parents[2].resolve() / 'dataset'
-    generate_spindle_trains_dataset(dataset_path / 'SpindleTrains_raw_data', dataset_path / 'spindle_trains_annots.json')
+    generate_spindle_trains_dataset(str(dataset_path / 'SpindleTrains_raw_data'), str(dataset_path / 'spindle_trains_annots.json'))
