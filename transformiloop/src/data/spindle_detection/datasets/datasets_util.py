@@ -7,7 +7,7 @@ import pandas as pd
 from numpy import ndarray
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader
-from wandb.sdk import Config
+
 
 from transformiloop.src.data.spindle_detection.datasets.abstract_spindle_dataset import AbstractSpindleDataset
 from transformiloop.src.data.spindle_detection.datasets.finetune_dataset import FinetuneDataset
@@ -97,12 +97,12 @@ def get_class_idxs(dataset:AbstractSpindleDataset, distribution_mode:int)->tuple
     return np.array(idx_true), np.array(idx_false)
 
 
-def get_info_subject(subjects:ndarray, config:Config)->tuple[int, int]:
+def get_info_subject(subjects:ndarray, config:dict)->tuple[int, int]:
     """
     Returns the number of segments and the batch size for a given subject list.
     Args:
         subjects (ndarray): subject list.
-        config (Config): config dictionary.
+        config (dict): config dictionary.
 
     Returns:
         tuple[int, int]: nb_segment, batch_size.
@@ -112,12 +112,12 @@ def get_info_subject(subjects:ndarray, config:Config)->tuple[int, int]:
     return nb_segment, batch_size
 
 
-def get_dataloaders(config:Config, dataset_path:str)->tuple[DataLoader, DataLoader, DataLoader]:
+def get_dataloaders(config:dict, dataset_path:str)->tuple[DataLoader, DataLoader, DataLoader]:
     """
     Returns the dataloaders for the train, validation and test sets.
 
     Args:
-        config (Config): config dictionary.
+        config (dict): config dictionary.
         dataset_path (str): path to the dataset folder.
 
     Returns:

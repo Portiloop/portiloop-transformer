@@ -9,7 +9,6 @@ import torch
 from numpy import ndarray
 from torch import Tensor
 from torch.utils.data import Dataset, DataLoader
-from wandb.sdk import Config
 
 from transformiloop.src.data.pretraining import read_pretraining_dataset
 from transformiloop.src.data.sleep_stage import divide_subjects_into_sets
@@ -107,7 +106,7 @@ def read_spindle_train_info(subject_dir:str, spindle_info_file:str)->dict[str, d
 
     return data
 
-def get_dataloaders_spindle_trains(MASS_dir:str, ds_dir:str, config:Config)->tuple[DataLoader, DataLoader]:
+def get_dataloaders_spindle_trains(MASS_dir:str, ds_dir:str, config:dict)->tuple[DataLoader, DataLoader]:
     """
     Get the dataloaders for the MASS dataset
     - Start by dividing the available subjects into train and test sets
@@ -115,7 +114,7 @@ def get_dataloaders_spindle_trains(MASS_dir:str, ds_dir:str, config:Config)->tup
     Args:
         MASS_dir (str): The path to the MASS directory.
         ds_dir (str): The path to the dataset directory.
-        config (Config): The configuration object.
+        config (dict): The configuration object.
 
     Returns:
         tuple[DataLoader, DataLoader]: A tuple containing two dataloaders: the first one for the train set, and the second one for the test set.
@@ -171,9 +170,9 @@ class SpindleTrainDataset(Dataset):
     """
     Represents a PyTorch Dataset for spindle train data.
 
-    :ivar config: Configuration dictionary containing key details such as ``window_size``,
+    :ivar config: dicturation dictionary containing key details such as ``window_size``,
         ``seq_len``, and ``seq_stride`` that determine signal processing and windowing behavior.
-    :type config: Config
+    :type config: dict
     :ivar window_size: Size of the sliding window used for segmenting signals into smaller chunks.
     :type window_size: int
     :ivar seq_len: Length of the sequence, representing how many windows are concatenated.
@@ -197,7 +196,7 @@ class SpindleTrainDataset(Dataset):
     :ivar spindle_labels_train: List of indices for spindle labels categorized as "train."
     :type spindle_labels_train: list[int]
     """
-    def __init__(self, subjects:list[str], data: dict[str, dict[str, int | str | ndarray | Tensor]], labels: dict[str, dict[str, list[int | str]]], config:Config):
+    def __init__(self, subjects:list[str], data: dict[str, dict[str, int | str | ndarray | Tensor]], labels: dict[str, dict[str, list[int | str]]], config:dict):
         """
         This class takes in a list of subjects, a path to the MASS directory
         and reads the files associated with the given subjects as well as the sleep stage annotations
@@ -205,7 +204,7 @@ class SpindleTrainDataset(Dataset):
             subjects (list[str]): A list of subjects to be used for training.
             data (dict[str, dict[str, int | str | ndarray | Tensor]]): A dictionary containing the pretraining dataset.
             labels (dict[str, dict[str, list[int]]]): A dictionary containing the sleep stage annotations.
-            config (Config): A configuration object containing details such as window size, sequence length, and stride.
+            config (dict): A configuration object containing details such as window size, sequence length, and stride.
         """
         super().__init__()
 

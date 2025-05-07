@@ -6,7 +6,7 @@ import torch
 from numpy import ndarray
 from torch import Tensor
 from torch.utils.data import Dataset, DataLoader, Sampler
-from wandb.sdk import Config
+
 
 from transformiloop.src.data.pretraining import read_pretraining_dataset
 
@@ -30,7 +30,7 @@ def divide_subjects_into_sets(labels:dict[str, list[str]])->tuple[list[str], lis
     test_subjects = subjects[int(len(subjects) * 0.8):]
     return train_subjects, test_subjects
 
-def get_dataloaders_sleep_stage(MASS_dir:str, ds_dir:str, config:Config)->tuple[DataLoader, DataLoader]:
+def get_dataloaders_sleep_stage(MASS_dir:str, ds_dir:str, config:dict)->tuple[DataLoader, DataLoader]:
     """
     Get the dataloaders for the MASS dataset
     - Start by dividing the available subjects into train and test sets
@@ -39,7 +39,7 @@ def get_dataloaders_sleep_stage(MASS_dir:str, ds_dir:str, config:Config)->tuple[
     Args:
         MASS_dir (str): The path to the MASS directory.
         ds_dir (str): The path to the dataset directory.
-        config (Config): The configuration object.
+        config (dict): The configuration object.
 
     Returns:
         tuple[DataLoader, DataLoader]: A tuple containing two dataloaders: the first one for the train set, and the second one for the test set.
@@ -103,9 +103,9 @@ class SleepStageDataset(Dataset):
     """
     This class represents a dataset for sleep stage prediction.
 
-    :ivar config: Configuration options containing parameters such as `window_size`, `seq_len`,
+    :ivar config: dicturation options containing parameters such as `window_size`, `seq_len`,
         and `seq_stride`.
-    :type config: Config
+    :type config: dict
     :ivar window_size: Size of the window for extracting signal patches.
     :type window_size: int
     :ivar seq_len: Length of the sequence used in preprocessing.
@@ -119,7 +119,7 @@ class SleepStageDataset(Dataset):
     :ivar full_labels: Concatenated tensor of all labels associated with the signals.
     :type full_labels: Tensor
     """
-    def __init__(self, subjects:list[str], data:dict[str, dict[str, int | str | ndarray | Tensor]], labels:dict[str, list[str]], config:Config):
+    def __init__(self, subjects:list[str], data:dict[str, dict[str, int | str | ndarray | Tensor]], labels:dict[str, list[str]], config:dict):
         """
         This class takes in a list of subject, a path to the MASS directory
         and reads the files associated with the given subjects as well as the sleep stage annotations
@@ -128,7 +128,7 @@ class SleepStageDataset(Dataset):
             subjects (list[str]): List of subject IDs
             data (dict[str, dict[str, int | str | ndarray | Tensor]]): Dictionary containing the pretraining dataset
             labels (dict[str, list[str]]): Dictionary containing the sleep stage labels for each subject
-            config (Config): Configuration dictionary containing required settings.
+            config (dict): dicturation dictionary containing required settings.
         """
         super().__init__()
         self.config = config
@@ -222,13 +222,13 @@ class SleepStageSampler(Sampler):
     :ivar max_len: The maximum index for sampling, adjusted for past signals and window size.
     :type max_len: int
     """
-    def __init__(self, dataset:SleepStageDataset, config:Config):
+    def __init__(self, dataset:SleepStageDataset, config:dict):
         """
         Initializes the instance of the class.
 
         Args:
             dataset (SleepStageDataset): The dataset object containing sleep stage data.
-            config (Config): Configuration dictionary containing required settings
+            config (dict): dicturation dictionary containing required settings
         """
         super().__init__()
         self.dataset = dataset

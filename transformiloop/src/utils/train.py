@@ -320,7 +320,7 @@ def run(config, wandb_group, wandb_project, save_model, unique_name, initial_val
     # Initialize WandB logging
     experiment_name = f"{config['exp_name']}_{time.time_ns()}" if unique_name else config['exp_name']
 
-    logging.debug(f"Config: {config}")
+    logging.debug(f"dict: {config}")
     logger = WandBLogger(wandb_group, config, wandb_project, experiment_name, dataset_path)
 
     # Load data
@@ -502,7 +502,7 @@ if __name__ == "__main__":
     group3.add_argument('--spindle_trains', action='store_true', help='Finetune the model on the spindle trains dataset')
     group3.add_argument('--sleep_stages', action='store_true', help='Finetune the model on the sleep stages dataset')
 
-    # Configuration file
+    # dicturation file
     parser.add_argument('--config', type=str, default=None, help='Path to the configuration file. If none is provided, the default configuration will be used')
 
     # WandB logging arguments

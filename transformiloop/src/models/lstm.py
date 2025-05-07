@@ -13,7 +13,7 @@ ABLATION = 0
 
 def get_final_model_config_dict(index=0, split_i=0):
     """
-    Configuration dictionary of the final 1-input pre-trained model presented in the Portiloop paper.
+    dicturation dictionary of the final 1-input pre-trained model presented in the Portiloop paper.
 
     Args:
         index: last number in the name of the pre-trained model (several are provided)

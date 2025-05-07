@@ -3,12 +3,19 @@ from copy import deepcopy
 from math import floor
 from random import choices, uniform, gauss
 import torch
+
+
 from transformiloop.src.models.encoding_models import EncodingTypes
 
 EPSILON_NOISE = 0.25 # Proportion of samples which are fully random
 
 
-def initialize_config(name):
+def initialize_config(name:str)->dict:
+    """
+    Returns a config dictionary with default values and the name of the experiment.
+    Returns:
+        dict: config dictionary with default values and the name of the experiment.
+    """
     global DEFAULT_CONFIG
     config = deepcopy(DEFAULT_CONFIG)
     config['exp_name'] = name
@@ -117,12 +124,12 @@ DEFAULT_CONFIG = {
     'fe': 250,
     'seed': None,
 
-    # # Augmentation Config
+    # # Augmentation dict
     # 'jitter_scale_ratio': 1.5,
     # 'jitter_ratio': 2,
     # 'max_seg': 12,
 
-    # # Encoder Config
+    # # Encoder dict
     # 'input_channels': 1,
     # 'kernel_size': 8, 
     # 'stride': 1,
@@ -147,9 +154,13 @@ SAMPLEABLE_DICT = {
 }
 
 
-def fill_config(config):
+def fill_config(config:dict)->dict:
     """
     Takes an input config and fills in the missing values using the DEFAULT_CONFIG.
+    Args:
+        config (dict): Input config
+    Returns:
+        dict: The config, modified if necessary
     """
     global DEFAULT_CONFIG
     for key in DEFAULT_CONFIG:
@@ -158,28 +169,16 @@ def fill_config(config):
     return config
 
 
-def validate_config(config):
-    """Checks if the input config is valid.
+def validate_config(config:dict)->bool:
+    """
+    Checks if the input config is valid.
 
     Args:
         config (dict): Input config
 
     Returns:
-        Dict: The config, modified if necessary
+        bool: True if the config is valid, False otherwise.
     """
-    # # Check d_model 
-    # # If we are not using the cnn encoder, then d_model should be the same as window size
-    # if not config['use_cnn_encoder']:
-    #     config['embedding_size'] = config['window_size']
-    # # If we use one hot encoding, Embedding size+seq_len
-    # if config['encoding_type'] == EncodingTypes.ONE_HOT_ENCODING:
-    #     config['d_model'] = config['embedding_size'] + config['seq_len']
-    # elif config['d_model'] < 0:
-    #     return False
-    # elif config['d_model'] != config['embedding_size']:
-    #     # Any other case, embedding size is the same as d_model
-    #     config['embedding_size'] = config['d_model']
-
     # Make sure embedding_size is well set
     if config['use_cnn_encoder'] or config['duplicate_as_window']:
         # If we are using a CNN or duplicate as window and one hot encoding, embedding size is d_model/2
@@ -210,7 +209,7 @@ def validate_config(config):
 
     return True
 
-def sample_config_dict(exp_name, prev_exp, all_exps):
+def sample_config_dict(exp_name:str, prev_exp:dict, all_exps: list[dict])->tuple[dict, dict]:
     """
     Sample a new Experiment dictionary based off of the previous experiments
 
@@ -220,20 +219,20 @@ def sample_config_dict(exp_name, prev_exp, all_exps):
         all_exps (list(dict)): List of all experiments done previously
 
     Returns:
-        (dict, dict): Sampled dictionary and Unrounded version
+        tuple[dict, dict]: Sampled dictionary and Unrounded version
     """
     config_dict = initialize_config(exp_name)
     if not validate_config(config_dict):
         raise AttributeError("Issue with your config.")
     flag_in_exps = True
 
+    sample_config_unrounded = {}
+    sampled_config = {}
     while flag_in_exps:
         noise = choices(population=[True, False], weights=[EPSILON_NOISE, 1.0 - EPSILON_NOISE])[0]
         if prev_exp == {} or noise:
-            logging.debug(f"sampling random config")  # TODO: remove
             sampled_config, sample_config_unrounded = sample_once()
         else:
-            logging.debug(f"sampling config near previous experiment")  # TODO: remove
             center = get_sampleable_from_config(prev_exp)
             sampled_config, sample_config_unrounded = sample_once(center=center)
         flag_in_exps = False
@@ -249,7 +248,7 @@ def sample_config_dict(exp_name, prev_exp, all_exps):
 
     return config_dict, sample_config_unrounded
 
-def get_sampleable_from_config(config):
+def get_sampleable_from_config(config:dict)->dict:
     """Gets only sampleable keys in a config dictionary
 
     Args:
@@ -263,7 +262,7 @@ def get_sampleable_from_config(config):
         sampleable[key] = config[key]
     return sampleable
 
-def compare_configs(config1, config2):
+def compare_configs(config1:dict, config2:dict)->bool:
     """Compares two dictionaries based only on sampleable keys
 
     Args:
@@ -271,18 +270,26 @@ def compare_configs(config1, config2):
         config2 (dict): second dictionary to compare
 
     Returns:
-        Bool: True if both are the same, False otherwise
+        bool: True if both are the same, False otherwise
     """
-    # not_compared_keys = ['exp_name', 'max_duration', 'nb_epochs_max', 'subjects_path', 'data_path']
     for key in SAMPLEABLE_DICT.keys():
         if config1[key] != config2[key]:
             return False
     return True
 
-def clip(x, min_x, max_x):
+def clip(x:float, min_x:float, max_x:float)->float:
+    """
+    Clip a value between min_x and max_x
+    Args:
+        x (float): value to clip
+        min_x (float): minimum value
+        max_x (float): maximum value
+    Returns:
+        float: clipped value
+    """
     return max(min(x, max_x), min_x)
 
-def sample_once(center=None, std=0.1):
+def sample_once(center:dict=None, std:float=0.1)->tuple[dict, dict]:
     """Sample all Sampleable keys from a dictionary randomly once
 
     Args:
@@ -308,7 +315,7 @@ def sample_once(center=None, std=0.1):
 
     return sample, sample_unrounded
 
-def sample_from_range(range_t, gaussian_mean=None, gaussian_std_factor=0.1):
+def sample_from_range(range_t:list, gaussian_mean:float=None, gaussian_std_factor:float=0.1)->tuple[float, float]:
     """Sample one value from a key based on a range
 
     Args:
@@ -326,7 +333,7 @@ def sample_from_range(range_t, gaussian_mean=None, gaussian_std_factor=0.1):
     diff_t = max_t - min_t
     gaussian_std = gaussian_std_factor * diff_t
     if gaussian_mean is None:
-        res = uniform(min_t - 0.5, max_t + 0.5)  # otherwise extremum are less probable
+        res = uniform(min_t - 0.5, max_t + 0.5)  # otherwise extremums are less probable
     else:
         res = gauss(mu=gaussian_mean, sigma=gaussian_std)
         res = clip(res, min_t, max_t)
@@ -339,14 +346,14 @@ def sample_from_range(range_t, gaussian_mean=None, gaussian_std_factor=0.1):
     return res, res_unrounded
 
 
-def check_valid_cnn(config):
+def check_valid_cnn(config:dict)->bool:
     """Check for the validity of the CNN parameters and updates the necessary parameters
 
     Args:
         config (dict): the config to check
 
     Returns:
-        Bool: True if config is valid, false otherwise
+        bool: True if config is valid, false otherwise
     """
     l_out = config['window_size']
     channels = config['cnn_in_channels']
@@ -361,5 +368,16 @@ def check_valid_cnn(config):
     config['cnn_linear_size'] = l_out
     return True
 
-def out_dim(window_size, padding, dilation, kernel, stride):
+def out_dim(window_size:int, padding:int, dilation:int, kernel:int, stride:int)->int:
+    """
+    Returns the output dimension of a convolutional layer.
+    Args:
+        window_size (int): size of the input window
+        padding (int): padding of the convolutional layer
+        dilation (int): dilation of the convolutional layer
+        kernel (int): kernel size of the convolutional layer
+        stride (int): stride of the convolutional layer
+    Returns:
+        int: output dimension of the convolutional layer.
+    """
     return floor((window_size + 2 * padding - dilation * (kernel - 1) - 1) / stride + 1)
