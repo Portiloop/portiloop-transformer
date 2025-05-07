@@ -19,16 +19,16 @@ class TestDataset(unittest.TestCase):
         self.subject_list = ['01-05-0021', '01-05-0022']
         self.MASS_dir = pathlib.Path(__file__).parents[1].resolve() / 'transformiloop' / 'dataset'
 
-        self.data = read_pretraining_dataset(self.MASS_dir / 'test_ds')
+        self.data = read_pretraining_dataset(str(self.MASS_dir / 'test_ds'))
 
     def test_reader_sleep_staging_labels(self):
-        labels = read_sleep_staging_labels(self.MASS_dir)
+        labels = read_sleep_staging_labels(str(self.MASS_dir))
         self.assertEqual(len(labels.keys()), 160)
 
     # Test pretraining dataset
     def test_sleep_Staging_dataset(self):
-        sleep_stages = read_sleep_staging_labels(self.MASS_dir)
-        dataset = SleepStageDataset(self.subject_list, self.MASS_dir, self.data, sleep_stages, self.config)
+        sleep_stages = read_sleep_staging_labels(str(self.MASS_dir))
+        dataset = SleepStageDataset(self.subject_list, self.data, sleep_stages, self.config)
         self.assertEqual(len(dataset), len(dataset.full_labels))
         
         # Get a random index
@@ -39,7 +39,7 @@ class TestDataset(unittest.TestCase):
         # Check that the signal is of the correct size
         self.assertEqual(signal.shape, torch.Size([self.config['seq_len'], self.config['window_size']]))
 
-        sampler = SleepStageSampler(dataset)
+        sampler = SleepStageSampler(dataset, config=self.config)
         for _ in range(MAX_ITER_TEST):
             index = next(sampler.__iter__())
             self.assertNotEqual(dataset[index], torch.tensor([0, 0, 0, 0, 0]))
@@ -55,6 +55,7 @@ class TestDataset(unittest.TestCase):
         for index, batch in enumerate(dataloader):
             # Check if th signal is of the right shape
             signal = batch[0]
+            print(signal.shape)
             self.assertEqual(signal.shape, torch.Size([self.config['batch_size'], self.config['seq_len'], self.config['window_size']]))
             
             # Check if the labels are the right shape

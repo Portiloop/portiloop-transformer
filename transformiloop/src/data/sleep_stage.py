@@ -131,7 +131,6 @@ class SleepStageDataset(Dataset):
             config (Config): Configuration dictionary containing required settings.
         """
         super().__init__()
-
         self.config = config
         self.window_size = config['window_size']
         self.seq_len = config['seq_len']
@@ -147,7 +146,6 @@ class SleepStageDataset(Dataset):
             if subject not in data.keys():
                 print(f"Subject {subject} not found in the pretraining dataset")
                 continue
-            # assert subject in data.keys(), f"Subject {subject} not found in the pretraining dataset" 
             signal = torch.tensor(
                 data[subject]['signal'], dtype=torch.float)
             # Get all the labels for the given subject
@@ -170,7 +168,7 @@ class SleepStageDataset(Dataset):
         self.full_labels = torch.cat(full_labels)
 
     @staticmethod
-    def get_labels():
+    def get_labels()->list[str]:
         """
         Return the list of sleep stage labels.
 
@@ -204,7 +202,6 @@ class SleepStageDataset(Dataset):
         label = self.full_labels[index + self.window_size - 1]
 
         assert label != 5, "Label is '?'"
-
         return signal, label.type(torch.long)
 
     def __len__(self):
