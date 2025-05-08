@@ -138,7 +138,6 @@ class SpindleTrainDataset(Dataset):
             0, self.window_size, self.seq_stride)
         label = self.full_labels[index + self.window_size - 1]
         # Make sure that the last index of the signal is the same as the label
-        # assert signal[-1, -1] == self.full_signal[index + self.window_size - 1], "Issue with the data and the labels"
         label = label.type(torch.long)
         assert label in [1, 2], f"Label {label} is not 1 or 2"
         return signal, label - 1

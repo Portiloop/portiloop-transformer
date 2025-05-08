@@ -4,7 +4,7 @@ from typing import Iterator
 import numpy as np
 from torch.utils.data import Sampler
 
-from transformiloop.src.data.spindle.spindle_train.spindle_trains import SpindleTrainDataset
+from transformiloop.src.data.spindle.spindle_train.datasets.spindle_train_dataset import SpindleTrainDataset
 
 
 class EquiRandomSampler(Sampler):
@@ -71,7 +71,7 @@ class EquiRandomSampler(Sampler):
             # Select a random class
             class_choice = np.random.choice(self.sample_list)
 
-            def threat_index(specific_index: int, max_index: int) -> tuple[int, int]:
+            def treat_index(specific_index: int, max_index: int) -> tuple[int, int]:
                 """
                 Get the next index for the given class.
                 Args:
@@ -85,7 +85,7 @@ class EquiRandomSampler(Sampler):
                 specific_index += 1
                 if specific_index >= max_index:
                     specific_index = 0
-                assert specific_index in self.dataset.spindle_labels_iso, "Spindle index not found in list"
+                assert i in self.dataset.spindle_labels_iso, "Spindle index not found in list"
                 return i, specific_index
 
             if class_choice == 0:
@@ -93,11 +93,11 @@ class EquiRandomSampler(Sampler):
                 yield random.randint(0, len(self.dataset.full_signal) - self.dataset.min_signal_len - self.dataset.window_size)
                 continue
             elif class_choice == 1:
-                index, self.isolated_index = threat_index(self.isolated_index, self.max_isolated_index)
+                index, self.isolated_index = treat_index(self.isolated_index, self.max_isolated_index)
             elif class_choice == 2:
-                index, self.first_index = threat_index(self.first_index, self.max_first_index)
+                index, self.first_index = treat_index(self.first_index, self.max_first_index)
             elif class_choice == 3:
-                index, self.train_index = threat_index(self.train_index, self.max_train_index)
+                index, self.train_index = treat_index(self.train_index, self.max_train_index)
             else:
                 continue
             yield index - self.dataset.past_signal_len - self.dataset.window_size + 1

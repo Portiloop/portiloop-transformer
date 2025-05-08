@@ -7,8 +7,8 @@ from torch.utils.data import DataLoader
 
 from transformiloop.src.data.pretraining import read_pretraining_dataset
 from transformiloop.src.data.sleep_stage import divide_subjects_into_sets
-from transformiloop.src.data.spindle.spindle_detection.samplers.equirandom_sampler import EquiRandomSampler
-from transformiloop.src.data.spindle.spindle_train.spindle_train_dataset import SpindleTrainDataset
+from transformiloop.src.data.spindle.spindle_train.samplers.equirandom_sampler import EquiRandomSampler
+from transformiloop.src.data.spindle.spindle_train.datasets.spindle_train_dataset import SpindleTrainDataset
 
 
 def generate_spindle_trains_dataset(raw_dataset_path:str, output_file:str, electrode:str='Cz'):

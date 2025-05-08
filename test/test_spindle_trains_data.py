@@ -1,9 +1,13 @@
 import pathlib
-from transformiloop.src.data.pretraining import read_pretraining_dataset
-from transformiloop.src.data.spindle.spindle_train import SpindleTrainDataset, EquiRandomSampler, read_spindle_trains_labels
-from transformiloop.src.utils.configs import initialize_config, validate_config
 import unittest
+
 from torch.utils.data import DataLoader
+
+from transformiloop.src.data.pretraining import read_pretraining_dataset
+from transformiloop.src.data.spindle.spindle_train.datasets.spindle_train_dataset import SpindleTrainDataset
+from transformiloop.src.data.spindle.spindle_train.samplers.equirandom_sampler import EquiRandomSampler
+from transformiloop.src.data.spindle.spindle_train.spindle_trains import read_spindle_trains_labels
+from transformiloop.src.utils.configs import initialize_config, validate_config
 
 
 class TestDataset(unittest.TestCase):
