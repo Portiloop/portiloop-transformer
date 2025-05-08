@@ -1,16 +1,15 @@
-import time
-import torch
-import numpy as np
-import torch.nn as nn
-import os
-import json
-import matplotlib.pyplot as plt
-from matplotlib.lines import Line2D
 import logging
+import os
+import time
+
+import matplotlib.pyplot as plt
+import numpy as np
+import torch
+import torch.nn as nn
 import wandb
+from matplotlib.lines import Line2D
+from sklearn.metrics import classification_report
 from torch.optim.lr_scheduler import _LRScheduler
-from copy import deepcopy
-from sklearn.metrics import classification_report, confusion_matrix
 
 from transformiloop.src.data.sleep_stage import SleepStageDataset
 from transformiloop.src.data.spindle_trains import SpindleTrainDataset

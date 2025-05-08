@@ -167,8 +167,19 @@ def pretrain(wandb_group:str|None, wandb_project:str|None, wandb_exp_id:str|None
             raise e
 
 
-def finetune(wandb_group, wandb_project, wandb_exp_id, log_wandb=True, restore=False, task=None, pretrained_model=None, model_type="transformer"):
-
+def finetune(wandb_group:str, wandb_project:str, wandb_exp_id:str, log_wandb:bool=True, restore:bool=False, task:str=None, pretrained_model:dict=None, model_type:str="transformer"):
+    """
+    Finetunes a specified model on a specified dataset. The method supports logging and checkpoint restoration via the WandB tool and configuration validation.
+    Args:
+        wandb_group (str): The group name for the WandB run.
+        wandb_project (str): The project name for the WandB run.
+        wandb_exp_id (str): The experiment ID for the WandB run.
+        log_wandb (bool, optional): Whether to log the run using WandB. Defaults to True.
+        restore (bool, optional): Whether to restore the model from a previous run. Defaults to False.
+        task (str, optional): The task to finetune the model on. Defaults to None.
+        pretrained_model (dict, optional): The pretrained model to finetune. Defaults to None.
+        model_type (str, optional): The type of model to finetune. Defaults to "transformer".
+    """
     if pretrained_model is not None:
         os.environ['WANDB_API_KEY'] = "cd105554ccdfeee0bbe69c175ba0c14ed41f6e00"  # TODO insert my own key
         if restore:
@@ -176,8 +187,7 @@ def finetune(wandb_group, wandb_project, wandb_exp_id, log_wandb=True, restore=F
         api = wandb.Api()
         run = api.run(pretrained_model['run_path'])
         config = run.config
-        model_dict = torch.load(\
-                wandb.restore(pretrained_model['model_name'], run_path=pretrained_model['run_path']).name)
+        model_dict = torch.load(wandb.restore(pretrained_model['model_name'], run_path=pretrained_model['run_path']).name)
         # Initialize the model
         model = TransformiloopPretrain(config)
         model_state_dict = model_dict['model']
@@ -193,7 +203,8 @@ def finetune(wandb_group, wandb_project, wandb_exp_id, log_wandb=True, restore=F
         config = fill_config(config)
         config['lr'] = 1e-6
         model = TransformiloopFinetune(config, cnn_encoder, transformer, freeze=config['freeze_pretrained'])
-        
+
+        wandb_run = None
         if log_wandb:
             # Initialize WandB logging
             wandb_run = wandb.init(
@@ -209,13 +220,13 @@ def finetune(wandb_group, wandb_project, wandb_exp_id, log_wandb=True, restore=F
 
         if log_wandb:
             wandb_run.config.update(config)
-        else:
-            wandb_run = None
     else:
         # Initialize the config depending on the case
+        if restore:
+            log_wandb = True
         if log_wandb:
             # Initialize WandB logging
-            model_dict = init_wandb_logging(wandb_group,wandb_project,wandb_exp_id,restore)
+            model_dict, config, wandb_run = init_wandb_logging(wandb_group,wandb_project,wandb_exp_id,restore)
         else:
             # Load the config
             config = initialize_config('test')
@@ -242,7 +253,8 @@ def finetune(wandb_group, wandb_project, wandb_exp_id, log_wandb=True, restore=F
         elif model_type == "lstm":
             c_model = get_final_model_config_dict()
             model = PortiloopNetwork(c_model)
-            # model = GRUClassifier(config)
+        else:
+            raise AttributeError("Model type not supported.")
 
         # Restore the model if needed
         if restore:
@@ -269,19 +281,16 @@ def finetune(wandb_group, wandb_project, wandb_exp_id, log_wandb=True, restore=F
         scheduler.load_state_dict(model_dict['scheduler'])
 
     # Initialize dataset
+    dataset_path = str(pathlib.Path(__file__).parents[2].resolve() / 'dataset')
+    MASS_dir = dataset_path + "/" + "MASS_preds"
     if task is None:
         raise AttributeError("Task must be specified.")
     elif task == 'spindles':
-        dataset_path = pathlib.Path(__file__).parents[2].resolve() / 'dataset'
         train_dl, val_dl, _ = get_dataloaders(config, dataset_path)
-    elif task == 'sleep_stages': 
-        dataset_path = pathlib.Path(__file__).parents[2].resolve() / 'dataset'
-        MASS_dir = dataset_path / 'MASS_preds'
+    elif task == 'sleep_stages':
         train_dl, val_dl = get_dataloaders_sleep_stage(MASS_dir, dataset_path, config)
     elif task == 'spindle_trains':
-        dataset_path = pathlib.Path(__file__).parents[2].resolve() / 'dataset'
-        MASSdataset_path = dataset_path / 'MASS_preds'
-        train_dl, val_dl = get_dataloaders_spindle_trains(MASSdataset_path, dataset_path, config)
+        train_dl, val_dl = get_dataloaders_spindle_trains(MASS_dir, dataset_path, config)
 
     # Start training
     for epoch in range(config['epochs']):
@@ -315,16 +324,22 @@ def finetune(wandb_group, wandb_project, wandb_exp_id, log_wandb=True, restore=F
             raise e
 
 
-def run(config, wandb_group, wandb_project, save_model, unique_name, initial_validation=True):
-
-    time_start = time.time()
+def run(config:dict, wandb_group:str, wandb_project:str, save_model:bool, unique_name:bool, initial_validation:bool=True):
+    """
+    Runs the training loop for a specified model.
+    Args:
+        config (dict): The configuration dictionary.
+        wandb_group (str): The group name for the WandB run.
+        wandb_project (str): The project name for the WandB run.
+        save_model (bool): Whether to save the model.
+        unique_name (bool): Whether to use a unique name for the run.
+        initial_validation (bool, optional): Whether to run the initial validation. Defaults to True.
+    """
+    time.time()
 
     config['device'] = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    # config['d_model'] = config['window_size']
 
-    dataset_path = pathlib.Path(__file__).parents[2].resolve() / 'dataset'
-    # pretraining_data_path = dataset_path / 'pretraining_dataset.txt'
-    # fi = os.path.join(DATASET_PATH, 'dataset_classification_full_big_250_matlab_standardized_envelope_pf.txt')
+    dataset_path = str(pathlib.Path(__file__).parents[2].resolve() / 'dataset')
 
     # Initialize WandB logging
     experiment_name = f"{config['exp_name']}_{time.time_ns()}" if unique_name else config['exp_name']
@@ -335,7 +350,6 @@ def run(config, wandb_group, wandb_project, save_model, unique_name, initial_val
     # Load data
     train_dl, val_dl, _ = get_dataloaders(config, dataset_path)
     logging.debug(pprint.pprint(config))
-    # pretraining_loader = data_generator(pretraining_data_path, config)
 
     # Load models
     classifier = TransformiloopFinetune(config)
@@ -366,8 +380,6 @@ def run(config, wandb_group, wandb_project, save_model, unique_name, initial_val
     )
 
     loss_es = None
-    best_epoch = 0
-    updated_model = False
 
     best_loss_early_stopping = 1
     best_epoch_early_stopping = 0
@@ -377,24 +389,9 @@ def run(config, wandb_group, wandb_project, save_model, unique_name, initial_val
     best_model_loss_validation = 1
     early_stopping_counter = 0
 
-    # Start of Pretraining loop
-    # min_loss = 10000.0
-    # if pretrain:
-    #     for epoch in range(config['epochs_pretrain']):
-    #         loss, loss_t, loss_f, loss_c = pretrain_epoch(encoder, config['optimizer'], pretraining_loader, config, config['device'])
-    #         logger.log({'loss': loss, 'loss_t': loss_t, 'loss_f': loss_f, 'loss_c':loss_c})
-    #         if abs(min_loss - loss) <= config['es_delta']:
-    #             break
-    #     logging.debug("Done with pretraining...")
-    
-    # if not finetune_encoder:
-    #     for param in encoder.parameters():
-    #         param.requires_grad = False
-
     # Initial validation 
     if initial_validation:
-        val_loss, val_acc, val_f1, val_rec, val_prec, val_cm = finetune_test_epoch(
-                val_dl, config, classifier, config['device'])
+        val_loss, val_acc, val_f1, val_rec, val_prec, val_cm = finetune_test_epoch(dataloader=val_dl, config=config, classifier=classifier,device=config['device'])
         loggable_dict = {
             "Validation Loss": val_loss,
             "Validation Accuracy": val_acc,
@@ -403,16 +400,14 @@ def run(config, wandb_group, wandb_project, save_model, unique_name, initial_val
             "Validation Precision": val_prec,
             "Validation Confusion Matrix": val_cm
         }
-        # logger.log(loggable_dict=loggable_dict)
+        logger.log(loggable_dict=loggable_dict)
 
     # Start of finetuning loop
     for epoch in range(config['epochs']):
         logging.debug(f"Starting epoch #{epoch}")
         print(f"Starting epoch #{epoch}")
-        train_loss, train_acc, train_f1, train_rec, train_prec, train_cm, grads_flow = finetune_epoch(
-            train_dl, config, config['device'], classifier, config['classifier_optimizer'], config['scheduler'])
-        val_loss, val_acc, val_f1, val_rec, val_prec, val_cm = finetune_test_epoch(
-            val_dl, config, classifier, config['device'])
+        train_loss, train_acc, train_f1, train_rec, train_prec, train_cm, grads_flow = finetune_epoch(train_dl, config, config['device'], classifier, config['classifier_optimizer'], config['scheduler'])
+        val_loss, val_acc, val_f1, val_rec, val_prec, val_cm = finetune_test_epoch(val_dl, config, classifier, config['device'])
         loggable_dict = {
             "Learning Rate": float(config['classifier_optimizer'].param_groups[0]['lr']),
             "Training Loss": train_loss,
@@ -439,8 +434,6 @@ def run(config, wandb_group, wandb_project, save_model, unique_name, initial_val
                 if save_model:
                     torch.save({
                         'epoch': epoch,
-                        # 'encoder_state_dict': best_encoder.state_dict(),
-                        # 'encoder_optimizer_state_dict': config['optimizer'].state_dict(),
                         'classifier_state_dict': best_classifier.state_dict(),
                         'classifier_optimizer_state_dict': config['classifier_optimizer'].state_dict(),
                         'recall_validation': best_model_recall_validation,
@@ -448,7 +441,7 @@ def run(config, wandb_group, wandb_project, save_model, unique_name, initial_val
                         'loss_validation': best_model_loss_validation,
                         'f1_score_validation': best_model_f1_score_validation,
                         'accuracy_validation': best_model_accuracy
-                    }, dataset_path / experiment_name, _use_new_zipfile_serialization=False)
+                    }, dataset_path + "/" + str(experiment_name), _use_new_zipfile_serialization=False)
 
         # Check if we have the best epoch
         if val_f1 > best_model_f1_score_validation:
@@ -567,6 +560,8 @@ if __name__ == "__main__":
         model_type = 'lstm'
     elif args.transformer:
         model_type = 'transformer'
+    else:
+        raise AttributeError("Model type not supported.")
 
     if args.finetune:
         finetune(args.wandb_group, args.wandb_project, args.experiment_name, log_wandb=args.log_wandb, restore=args.restore, task=task, pretrained_model=pretrained_dict, model_type=model_type)
