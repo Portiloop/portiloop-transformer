@@ -163,6 +163,6 @@ def read_spindle_trains_labels(ds_dir:str)->dict[str, dict[str, list[int|str]]]:
 
 if __name__ == "__main__":
     # Get the path to the dataset directory
-    dataset_path = pathlib.Path(__file__).parents[2].resolve() / 'dataset'
+    dataset_path = pathlib.Path(__file__).parents[4].resolve() / 'dataset'
     generate_spindle_trains_dataset(str(dataset_path / 'SpindleTrains_raw_data'),
                                     str(dataset_path / 'spindle_trains_annots.json'))

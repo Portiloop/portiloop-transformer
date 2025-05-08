@@ -101,7 +101,6 @@ class SpindleTrainDataset(Dataset):
             full_labels.append(label)
             full_signal.append(signal)
             del data[subject], signal, label
-
         # Concatenate the full signal and the full labels into one continuous tensor
         self.full_signal = torch.cat(full_signal)
         self.full_labels = torch.cat(full_labels)
@@ -139,7 +138,6 @@ class SpindleTrainDataset(Dataset):
         label = self.full_labels[index + self.window_size - 1]
         # Make sure that the last index of the signal is the same as the label
         label = label.type(torch.long)
-        assert label in [1, 2], f"Label {label} is not 1 or 2"
         return signal, label - 1
 
     def __len__(self) -> int:

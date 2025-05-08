@@ -66,7 +66,7 @@ class TestDataset(unittest.TestCase):
         # Check that default modification works as intended
         # Gets the first index where the label is zero (no modifications have been made)
         index = (first_label_train == 0).nonzero()[0]
-        modified = default_modif(first_element_train[index])
+        default_modif(first_element_train[index])
 
         # Check that the proportion of modified is roughly what we want
         ones, total = 0, 0

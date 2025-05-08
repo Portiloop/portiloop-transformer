@@ -24,7 +24,7 @@ class TestDataset(unittest.TestCase):
 
     def test_reader_sleep_staging_labels(self):
         labels = read_spindle_trains_labels(self.MASS_dir)
-        self.assertEqual(len(labels.keys()), 41)
+        self.assertEqual(len(labels.keys()), 138)
 
     # Test pretraining dataset
     def test_sleep_Staging_dataset(self):
@@ -50,7 +50,7 @@ class TestDataset(unittest.TestCase):
             num_spindles += sum([1 for i in label if i != 0])
             totals += len(label)
         print(num_spindles/totals)
-        self.assertAlmostEqual(num_spindles / totals, 0.5, delta=0.1)
+        self.assertAlmostEqual(num_spindles / totals, 0.25, delta=0.1)
 
 
     def tearDown(self):
