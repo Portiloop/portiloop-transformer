@@ -6,7 +6,7 @@ import pandas as pd
 import torch
 from numpy import ndarray
 
-from transformiloop.src.data.spindle_detection.datasets.abstract_spindle_dataset import AbstractSpindleDataset
+from transformiloop.src.data.spindle.spindle_detection.datasets.abstract_spindle_dataset import AbstractSpindleDataset
 
 
 class SignalDataset(AbstractSpindleDataset):

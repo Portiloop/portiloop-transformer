@@ -2,7 +2,7 @@ import random
 
 import numpy as np
 from torch.utils.data import Sampler
-from wandb.sdk import Config
+
 
 
 class RandomSampler(Sampler):
@@ -23,13 +23,13 @@ class RandomSampler(Sampler):
     :type length: int
     """
 
-    def __init__(self, idx_true:np.ndarray, idx_false:np.ndarray, config:Config):
+    def __init__(self, idx_true:np.ndarray, idx_false:np.ndarray, config:dict):
         """
         Constructor for the RandomSampler class.
         Args:
             idx_true (np.ndarray): Indices corresponding to the 'true' group of data.
             idx_false (np.ndarray): Indices corresponding to the 'false' group of data.
-            config (Config): Configuration dictionary containing required settings.
+            config (dict): dicturation dictionary containing required settings.
         """
         super().__init__()
         self.idx_true = idx_true

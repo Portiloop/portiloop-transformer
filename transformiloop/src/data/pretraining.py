@@ -8,7 +8,7 @@ import torch
 from numpy import ndarray
 from torch import Tensor
 from torch.utils.data import Dataset
-from wandb.sdk import Config
+
 
 
 def read_patients_info(dataset_path:str)->dict[str,dict[str,int|str|ndarray|Tensor]]:
@@ -115,7 +115,7 @@ class PretrainingDataset(Dataset):
     :ivar mask_cum_probs: Cumulative probabilities derived from mask_probs.
     :type mask_cum_probs: torch.Tensor
     """
-    def __init__(self, dataset_path:str, config:Config, device:torch.device=None):
+    def __init__(self, dataset_path:str, config:dict, device:torch.device=None):
         self.device = device
         self.window_size = config['window_size']
 

@@ -5,9 +5,9 @@ from copy import deepcopy
 import numpy as np
 import torch
 from numpy import ndarray
-from wandb.sdk import Config
 
-from transformiloop.src.data.spindle_detection.datasets.abstract_spindle_dataset import AbstractSpindleDataset
+
+from transformiloop.src.data.spindle.spindle_detection.datasets.abstract_spindle_dataset import AbstractSpindleDataset
 
 
 def default_modif(signal: torch.Tensor) -> torch.Tensor:
@@ -38,7 +38,7 @@ class FinetuneDataset(AbstractSpindleDataset):
     :type device: str
     :ivar window_size: Time window size for the processed sequences.
     :type window_size: int
-    :ivar augmentation_config: Configuration for data augmentation, if any.
+    :ivar augmentation_config: dicturation for data augmentation, if any.
     :type augmentation_config: dict or None
     :ivar data: Input raw signal data.
     :type data: numpy.ndarray
@@ -68,16 +68,16 @@ class FinetuneDataset(AbstractSpindleDataset):
     """
 
 
-    def __init__(self, list_subject: ndarray, config: Config, data: ndarray, history: bool, augmentation_config: dict = None, device: str = None, signal_modif: Callable = None):
+    def __init__(self, list_subject: ndarray, config: dict, data: ndarray, history: bool, augmentation_config: dict = None, device: str = None, signal_modif: Callable = None):
         """
         Constructor for the FinetuneDataset class.
 
         Args:
             list_subject (ndarray): List of subjects to include in the dataset.
-            config (Config): Configuration object for the dataset.
+            config (dict): dicturation object for the dataset.
             data (ndarray): Signal data.
             history (bool): Whether to include label history in samples.
-            augmentation_config (dict, optional): Configuration for data augmentation, if any. Defaults to None.
+            augmentation_config (dict, optional): dicturation for data augmentation, if any. Defaults to None.
             device (str, optional): Device for computations, e.g., 'cpu' or 'cuda'. Defaults to None.
             signal_modif (Callable, optional): Custom function for modifying signals during pretraining. Defaults to None.
         """
@@ -172,7 +172,7 @@ class FinetuneDataset(AbstractSpindleDataset):
                 label = label_history
 
         assert label in [0, 1], f"Invalid label: {label}"
-        label = label.type(torch.Long)
+        label = label.type(torch.long)
         return x_data, label
 
 

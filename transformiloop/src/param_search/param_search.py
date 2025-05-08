@@ -216,10 +216,10 @@ if __name__ == "__main__":
         parser.error("Don't forget to pass a name to initialize a new meta experiment")
 
     # if args.output_file is not None:
-    #     logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s',
+    #     logging.basicdict(format='%(asctime)s %(levelname)s: %(message)s',
     #                         filename=args.output_file, level=logging.DEBUG)
     # else:
-    # logging.basicConfig(
+    # logging.basicdict(
     #     format='%(asctime)s %(levelname)s: %(message)s', level=logging.DEBUG)
 
     main(args)

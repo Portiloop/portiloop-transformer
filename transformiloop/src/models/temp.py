@@ -1,6 +1,6 @@
 import pathlib
 import time
-from transformiloop.src.data.spindle_trains import get_dataloaders_spindle_trains
+from transformiloop.src.data.spindle.spindle_train import get_dataloaders_spindle_trains
 from transformiloop.src.models.transformers import TransformiloopFinetune
 from transformiloop.src.utils.configs import initialize_config
 from transformiloop.src.models.model_blocks import GRUClassifier
