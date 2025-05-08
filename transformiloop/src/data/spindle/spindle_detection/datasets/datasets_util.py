@@ -9,10 +9,10 @@ from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader
 
 
-from transformiloop.src.data.spindle_detection.datasets.abstract_spindle_dataset import AbstractSpindleDataset
-from transformiloop.src.data.spindle_detection.datasets.finetune_dataset import FinetuneDataset
-from transformiloop.src.data.spindle_detection.samplers.random_sampler import RandomSampler
-from transformiloop.src.data.spindle_detection.samplers.validation_sampler import ValidationSampler
+from transformiloop.src.data.spindle.spindle_detection.datasets.abstract_spindle_dataset import AbstractSpindleDataset
+from transformiloop.src.data.spindle.spindle_detection.datasets.finetune_dataset import FinetuneDataset
+from transformiloop.src.data.spindle.spindle_detection.samplers.random_sampler import RandomSampler
+from transformiloop.src.data.spindle.spindle_detection.samplers.validation_sampler import ValidationSampler
 
 DATASET_FILE = 'dataset_classification_full_big_250_matlab_standardized_envelope_pf.txt'
 

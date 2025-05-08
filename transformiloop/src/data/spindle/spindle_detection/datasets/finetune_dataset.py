@@ -7,7 +7,7 @@ import torch
 from numpy import ndarray
 
 
-from transformiloop.src.data.spindle_detection.datasets.abstract_spindle_dataset import AbstractSpindleDataset
+from transformiloop.src.data.spindle.spindle_detection.datasets.abstract_spindle_dataset import AbstractSpindleDataset
 
 
 def default_modif(signal: torch.Tensor) -> torch.Tensor:

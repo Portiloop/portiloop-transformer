@@ -4,7 +4,7 @@ from typing import Iterator
 import numpy as np
 from torch.utils.data import Sampler
 
-from transformiloop.src.data.spindle_trains import SpindleTrainDataset
+from transformiloop.src.data.spindle.spindle_train.spindle_trains import SpindleTrainDataset
 
 
 class EquiRandomSampler(Sampler):

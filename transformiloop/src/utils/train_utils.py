@@ -12,7 +12,7 @@ from sklearn.metrics import classification_report
 from torch.optim.lr_scheduler import _LRScheduler
 
 from transformiloop.src.data.sleep_stage import SleepStageDataset
-from transformiloop.src.data.spindle_trains import SpindleTrainDataset
+from transformiloop.src.data.spindle.spindle_train import SpindleTrainDataset
 
 
 def save_model(model, optimizer, scheduler, batch_idx, exp_name):

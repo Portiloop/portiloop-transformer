@@ -17,8 +17,8 @@ from wandb.sdk.wandb_run import Run
 
 from transformiloop.src.data.pretraining import PretrainingDataset
 from transformiloop.src.data.sleep_stage import get_dataloaders_sleep_stage
-from transformiloop.src.data.spindle_detection.datasets.datasets_util import get_dataloaders
-from transformiloop.src.data.spindle_trains import get_dataloaders_spindle_trains
+from transformiloop.src.data.spindle.spindle_detection import get_dataloaders
+from transformiloop.src.data.spindle.spindle_train import get_dataloaders_spindle_trains
 from transformiloop.src.models.lstm import PortiloopNetwork, get_final_model_config_dict
 from transformiloop.src.models.transformers import TransformiloopFinetune, TransformiloopPretrain
 from transformiloop.src.utils.configs import fill_config, initialize_config, validate_config

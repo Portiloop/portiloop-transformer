@@ -1,7 +1,7 @@
 import pathlib
 from torch.utils.data import DataLoader
 from transformiloop.src.data.pretraining import read_pretraining_dataset
-from transformiloop.src.data.spindle_trains import EquiRandomSampler, SpindleTrainDataset, read_spindle_trains_labels
+from transformiloop.src.data.spindle.spindle_train import EquiRandomSampler, SpindleTrainDataset, read_spindle_trains_labels
 from transformiloop.src.utils.configs import initialize_config
 
 
